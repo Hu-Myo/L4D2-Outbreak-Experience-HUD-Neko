@@ -8,6 +8,8 @@ Extra teammate HUD cards for Left 4 Dead 2 with Neko. Public test version: **0.1
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
 
+> **Account and server restriction notice:** This DLL modifies the game at runtime. The author cannot guarantee that using it will not result in game/server restrictions or account bans. To the extent permitted by law, the author accepts no responsibility for such penalties. Use it only if you accept these risks of restrictions or bans.
+
 ## Installation
 
 ### 1. Set up Neko
