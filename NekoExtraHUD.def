@@ -1,0 +1,3 @@
+LIBRARY NekoExtraHUD
+EXPORTS
+    GetL4NPluginInstance

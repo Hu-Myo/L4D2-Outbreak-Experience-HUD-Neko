@@ -1,0 +1,111 @@
+L4D2 Outbreak Experience HUD (Built with Neko)
+Original Repository: https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko
+
+NekoExtraHUD Source-Available License — Free Redistribution through GitHub Forks Only
+2026-11-04
+
+Korean LICENSE is the authoritative text; this is an English translation for convenience.
+
+1. Scope and Definitions
+This License applies only to NekoExtraHUD's own code released under these terms by
+the lawful rights holder, and to DLLs built from that code. Each author's rights
+remain with that author in their respective portions.
+The Neko application and SDK, game files, HUDs, models, portraits, and other external
+materials created by others are not covered by the permissions in this License
+and remain subject to their separate terms.
+"Original Repository" means the GitHub repository in which the lawful rights holder
+releases NekoExtraHUD under this License. "Fork" means a public repository connected
+to the same repository network as the Original Repository through GitHub's Fork
+feature, including further forks of such a fork.
+
+2. Use and Private Modification
+Anyone who complies with these terms may download, make local copies of, use,
+analyze, and modify the covered software. Modified versions used only privately
+need not be published. This License does not prohibit use of the software itself
+or income from broadcasting activities. However, the provision of and access to
+copies of the software are subject to Section 4.
+
+3. Permitted Redistribution Channel
+Apart from the rights holder's original distribution, anyone wishing to
+redistribute may redistribute original or modified versions free of charge only
+through a public GitHub Fork connected to the Original Repository.
+Source code must be placed in that Fork, and DLLs and their distribution bundles
+must be placed in that Fork's GitHub Releases.
+Anyone distributing a DLL must make the corresponding source code and the
+project's own files required to build it available from the same Fork, and must
+identify the corresponding commit or tag.
+External SDKs and tools must not be copied without separate authorization;
+instead, their origins and required versions must be identified.
+The original copyright and attribution notices and the full text of this License
+must be retained. Redistributed modified portions must also be licensed under this
+License, and the redistributor must have the authority to grant that permission.
+
+4. Restrictions on Sales and External Reuploads
+The source code, DLLs, or distribution bundles of original or modified versions
+must not be sold, nor may payment or paid membership be required as a condition
+of downloading or using features. Providing copies of the software as part of
+paid products or paid file bundles is also not permitted.
+Income from broadcasting and unconditional voluntary donations that are not
+payment for downloading or using features are not prohibited. Providing files
+or features exclusively to donors does not qualify as an unconditional donation.
+Source code, DLLs, and distribution bundles must not be reuploaded or distributed
+as mirrors on other websites, the Steam Workshop, download archives, cloud-sharing
+spaces, or repositories not connected to the Original Repository.
+Introducing, explaining, or reviewing the software on other websites and linking
+to a permitted GitHub distribution page is allowed. This Section is not intended
+to prohibit legitimate hosting or copying necessary to provide GitHub's services,
+or uses that cannot be excluded by law.
+
+5. Identification and Traceability of Modified Versions
+Anyone redistributing files they have modified, added to, or rebuilt must state
+in the distribution description that it is their own distribution, identify the
+Original Repository, the scope of their work, distributor identification
+information, and a channel for reporting issues.
+In addition to code changes, changes to build options, external dependencies, or
+packaging that affect behavior must also be recorded.
+A modified version must not be presented as an official distribution created,
+verified, approved, or warranted by the original author.
+Merely rebuilding a DLL file does not transfer copyright in, or responsibility
+for, the entirety of the original code.
+
+6. Allocation of Responsibility for Original and Modified Portions
+a. Each author and each person performing work bears responsibility for the
+   portions they authored or modified, or the work they performed, according to
+   the actual cause of the issue, applicable law, and applicable contracts.
+b. Issues arising from the unchanged original code itself are treated as issues
+   in the original author's portion. Responsibility for that original portion
+   is not transferred wholesale to a modifier or redistributor merely because
+   the distribution is a modified version or a third-party DLL.
+c. For issues arising from modified or added code, changed settings or
+   dependencies, or build or packaging work, the person who performed that work
+   bears responsibility within the scope of their own work. Unless there is a
+   separate agreement to assume responsibility or a legal basis for doing so,
+   a fork relationship or attribution to the original source alone does not mean
+   that the original author has assumed warranty or support obligations for
+   changes made by others.
+d. Issues arising from interactions between original and modified portions, or
+   involving multiple causes, are assessed according to their actual causes,
+   each person's acts and contributions, applicable law, and applicable contracts.
+   Responsibility must not be assigned entirely to one party solely on the basis
+   of a DLL's filename, the distribution account, or whether it has been modified.
+   This allocation does not exclude or limit third parties' rights, including
+   rights relating to joint liability or joint and several liability under law.
+e. Redistributors bear responsibility for their own distribution descriptions,
+   additional promises, support agreements, and distribution work, and must not
+   promise warranty, compensation, or support obligations on behalf of other
+   authors.
+f. This allocation does not provide a blanket exemption for the original author
+   from responsibility for their own portions, nor does it automatically shift
+   responsibility for portions created by others to the original author.
+g. This Section alone does not newly impose on anyone unlimited liability for damages,
+   liability without fault, a warranty of proper operation in every environment,
+   or indefinite maintenance obligations. Liability and users' rights that cannot
+   be excluded or limited by law remain unaffected.
+
+7. Scope of Permissions
+Sales or redistribution not permitted by this License require separate permission
+from the relevant rights holder. This License does not grant permission on behalf
+of owners of external materials or other third-party rights holders.
+Permissions necessary to provide GitHub's services under its terms, legitimate
+rights to view and fork public repositories, and rights that cannot be excluded
+by law are preserved.
