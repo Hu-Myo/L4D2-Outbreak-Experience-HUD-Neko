@@ -2,13 +2,11 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[Download now — 0.1.15 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.15-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.15-public-test.zip)**
+**[Download now — 0.1.16 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.16-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.16-public-test.zip)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.15**.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.16**.
 
 **0.1.16 corrects L4D1 survivor portraits, downed artwork, and repeated-character detection.** The user confirmed normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance.
-
-**Release status:** 0.1.16 has passed the reported in-game test and its ZIP is awaiting publication. The download above still provides 0.1.15, which does not include this L4D1 correction.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
 
@@ -28,7 +26,7 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
 
 ### 2. Add this HUD
 
-1. Download the **currently published test ZIP** using the link above or from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases). GitHub's **Source code** archives are not ready-to-install builds.
+1. Download the **0.1.16 Public Test ZIP** using the link above or from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases). GitHub's **Source code** archives are not ready-to-install builds.
 2. With the game fully closed, place `NekoExtraHUD.dll` at:
 
    ```text
@@ -102,6 +100,12 @@ If a teammate is using a Neko model with suitable portrait artwork, the extra ca
 ### Display examples
 
 These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
+
+**Custom HUD used in the L4D1 examples**
+
+The L4D1 **In-game HUD** screenshots for 0.1.16 use [L4D1 Hud Only In L4D1 Official Campaigns](https://steamcommunity.com/sharedfiles/filedetails/?id=3734687754), a separately installed custom HUD, with its teammate panels locally resized to 60%. That add-on credits [L4D1 HUD+ by tomaz](https://steamcommunity.com/sharedfiles/filedetails/?id=2987439394), which builds on Urik's original L4D1 HUD.
+
+The extra cards reflect that installed HUD when **In-game HUD** is selected. Character portraits and downed artwork also depend on the installed model and portrait add-ons. These HUD and model assets are separate from this plugin's download.
 
 **L4D1 — normal display with In-game HUD**
 

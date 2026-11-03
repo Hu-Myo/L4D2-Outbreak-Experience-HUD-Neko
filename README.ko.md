@@ -2,13 +2,11 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[즉시 다운로드 — 0.1.15 공개 테스트 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.15-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.15-public-test.zip)**
+**[즉시 다운로드 — 0.1.16 공개 테스트 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.16-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.16-public-test.zip)**
 
-Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. 현재 공개된 테스트 다운로드는 **0.1.15**입니다.
+Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. 현재 공개된 테스트 다운로드는 **0.1.16**입니다.
 
 **0.1.16에서 L4D1 생존자 초상화, 다운 그림과 같은 캐릭터 판정을 수정했습니다.** 사용자가 실제 게임에서 정상 동작을 확인했습니다. 제공된 예시는 L4D1 정상·다운 상태와 **Current design** 표시입니다.
-
-**배포 상태:** 0.1.16의 실제 게임 테스트는 확인됐으며 ZIP 게시를 준비하고 있습니다. 위 다운로드는 아직 이 L4D1 수정이 포함되지 않은 0.1.15 배포본입니다.
 
 Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합니다. 게임 메뉴와 DLL에서는 **NekoExtraHUD / Extra Survivor HUD**라는 이름을 사용합니다.
 
@@ -28,7 +26,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 ### 2. 추가 HUD 적용
 
-1. 위 링크 또는 [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)에서 **현재 공개된 테스트 ZIP**을 받습니다. GitHub의 **Source code** 압축파일은 바로 설치하는 배포본이 아닙니다.
+1. 위 링크 또는 [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)에서 **0.1.16 공개 테스트 ZIP**을 받습니다. GitHub의 **Source code** 압축파일은 바로 설치하는 배포본이 아닙니다.
 2. 게임을 완전히 종료한 상태에서 `NekoExtraHUD.dll`을 아래 위치에 넣습니다.
 
    ```text
@@ -102,6 +100,12 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 ### 표시 예시
 
 아래는 커스텀 HUD와 Neko 모델을 사용하는 참고 스크린샷입니다. 그림은 설치된 애드온에서 제공하므로 사용자 환경에 따라 다르게 보일 수 있습니다. L4D2 이미지는 표시 참고용이며 0.1.16의 모든 상태를 별도로 검증했다는 뜻은 아닙니다.
+
+**L4D1 참고 화면에 사용한 커스텀 HUD**
+
+0.1.16의 L4D1 **In-game HUD** 참고 화면은 [L4D1 Hud Only In L4D1 Official Campaigns](https://steamcommunity.com/sharedfiles/filedetails/?id=3734687754)를 별도로 설치하고, 팀원 패널을 60%로 축소한 개인 커스텀 HUD를 사용한 모습입니다. 해당 모드는 tomaz의 [L4D1 HUD+](https://steamcommunity.com/sharedfiles/filedetails/?id=2987439394)를 기반 원본으로 안내하며, 그 원본은 Urik의 L4D1 HUD 작업을 바탕으로 합니다.
+
+**In-game HUD**를 선택하면 추가 카드에도 설치한 HUD의 디자인이 반영됩니다. 생존자 초상화와 다운 그림은 별도로 설치한 모델·초상화 애드온에 따라서도 달라집니다. 해당 HUD와 모델 자료는 이 플러그인 배포본과 별도로 사용하는 자료입니다.
 
 **L4D1 — In-game HUD 정상 표시**
 
