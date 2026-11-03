@@ -6,7 +6,9 @@
 
 Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. 현재 공개된 테스트 다운로드는 **0.1.15**입니다.
 
-**0.1.16은 게임 내 테스트를 기다리고 있습니다.** L4D1 생존자의 초상화 선택과 다운 그림, 같은 생존자 캐릭터 판정을 수정합니다. 테스트가 끝나기 전까지 위 다운로드는 기존 0.1.15 배포본으로 유지됩니다.
+**0.1.16에서 L4D1 생존자 초상화, 다운 그림과 같은 캐릭터 판정을 수정했습니다.** 사용자가 실제 게임에서 정상 동작을 확인했습니다. 제공된 예시는 L4D1 정상·다운 상태와 **Current design** 표시입니다.
+
+**배포 상태:** 0.1.16의 실제 게임 테스트는 확인됐으며 ZIP 게시를 준비하고 있습니다. 위 다운로드는 아직 이 L4D1 수정이 포함되지 않은 0.1.15 배포본입니다.
 
 Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합니다. 게임 메뉴와 DLL에서는 **NekoExtraHUD / Extra Survivor HUD**라는 이름을 사용합니다.
 
@@ -26,7 +28,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 ### 2. 추가 HUD 적용
 
-1. 테스트 배포본이 등록되면 [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)에서 받습니다. GitHub의 **Source code** 압축파일은 바로 설치하는 배포본이 아닙니다.
+1. 위 링크 또는 [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)에서 **현재 공개된 테스트 ZIP**을 받습니다. GitHub의 **Source code** 압축파일은 바로 설치하는 배포본이 아닙니다.
 2. 게임을 완전히 종료한 상태에서 `NekoExtraHUD.dll`을 아래 위치에 넣습니다.
 
    ```text
@@ -34,7 +36,36 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
    ```
 
 3. 배포본에 예제 `extra_hud.ini`가 있다면 처음 설치하는 경우 `<Left 4 Dead 2>/left4dead2/neko/extra_hud.ini`에 넣습니다. 업데이트할 때는 기존 설정 파일을 유지하세요.
-4. 게임을 켜고 맵에 들어간 뒤 콘솔에 `l4n_menu`를 입력합니다. **Extra Survivor HUD**에서 **Extension: ON**으로 설정합니다. 일반 4인 게임에서 미리 보려면 **Single-player test**도 켜세요.
+4. 게임을 켜고 맵에 들어간 뒤 콘솔에 `l4n_menu`를 입력합니다. **L4N Plugins(L4N 플러그인) → Extra Survivor HUD**에서 **Extension: ON**으로 설정합니다. 일반 4인 게임에서 미리 보려면 **Single-player test**도 켜세요.
+
+<details>
+<summary>스크린샷으로 메뉴 접근 방법 보기</summary>
+
+**1. 선택 사항: Neko 메뉴를 여는 키 설정**
+
+이 예시의 `\` 키는 사용자가 직접 지정한 키이며 **기본 키가 아닙니다**. 본인이 정한 키를 사용하거나, 맵에 들어간 뒤 콘솔에 `l4n_menu`를 직접 입력해도 됩니다.
+
+<img src="docs/images/menu-key-binding.png" alt="Neko 메뉴를 여는 키를 직접 지정한 예시" width="650">
+
+**2. Neko 메뉴 열기**
+
+지정한 키 또는 `l4n_menu`로 메인 메뉴를 엽니다.
+
+<img src="docs/images/menu-neko.png" alt="L4N 플러그인 항목이 보이는 Neko 메인 메뉴" width="650">
+
+**3. L4N 플러그인 선택**
+
+**L4N Plugins(L4N 플러그인)**을 연 뒤 **Extra Survivor HUD**를 선택합니다.
+
+<img src="docs/images/menu-plugins.png" alt="Extra Survivor HUD 항목이 보이는 L4N 플러그인 메뉴" width="650">
+
+**4. Extra Survivor HUD 설정**
+
+**Extension: ON**으로 켜고 테마를 선택합니다. 기존 팀원 3명으로 미리 보려면 **Single-player test**를 켜세요.
+
+<img src="docs/images/menu-extra-hud.png" alt="Extra Survivor HUD 옵션 메뉴" width="650">
+
+</details>
 
 ## 게임에 접속하면 어떻게 보이나요?
 
@@ -50,7 +81,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 ## 게임 내 옵션
 
-맵에 들어간 뒤 콘솔에 `l4n_menu`를 입력하고 **Extra Survivor HUD**를 선택합니다. 메뉴에서 바꾼 설정은 자동으로 저장됩니다.
+맵에 들어간 뒤 콘솔에 `l4n_menu`를 입력하고 **L4N Plugins(L4N 플러그인) → Extra Survivor HUD**를 선택합니다. 메뉴에서 바꾼 설정은 자동으로 저장됩니다.
 
 | 옵션 | 기본값 | 역할 |
 | --- | --- | --- |
@@ -67,6 +98,40 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 **In-game HUD**에서는 사용 중인 HUD와 팀원의 소지품에 따라 치료 아이템, 진통제·아드레날린, 투척무기 아이콘이 표시됩니다.
 
 팀원에게 적용된 Neko 모델에 적절한 초상화가 있으면 추가 카드에도 자동으로 반영할 수 있습니다. 기존 Neko 모델 선택을 따르며 별도의 초상화 스위치는 없습니다. 사용할 그림이 없으면 생존자 초상화로 표시됩니다.
+
+### 표시 예시
+
+아래는 커스텀 HUD와 Neko 모델을 사용하는 참고 스크린샷입니다. 그림은 설치된 애드온에서 제공하므로 사용자 환경에 따라 다르게 보일 수 있습니다. L4D2 이미지는 표시 참고용이며 0.1.16의 모든 상태를 별도로 검증했다는 뜻은 아닙니다.
+
+**L4D1 — In-game HUD 정상 표시**
+
+선택한 HUD 디자인으로 표시되는 정상 상태 초상화와 팀원 체력입니다.
+
+![L4D1 In-game HUD 정상 상태 팀원 표시](docs/images/l4d1-ingame-normal.png)
+
+**L4D1 — In-game HUD 다운 표시**
+
+다운 상태의 생존자 그림과 남은 체력입니다.
+
+![L4D1 In-game HUD 다운 상태 팀원 표시](docs/images/l4d1-ingame-downed.png)
+
+**L4D1 — Current design**
+
+플러그인의 간단한 카드 디자인으로 표시한 정상 상태 팀원입니다.
+
+![L4D1 Current design 정상 상태 팀원 카드](docs/images/l4d1-current-design.png)
+
+**L4D2 — In-game HUD 아이템 표시**
+
+치료 아이템, 진통제·아드레날린과 투척무기를 보여주는 참고 예시입니다.
+
+![L4D2 In-game HUD 팀원 아이템 표시](docs/images/l4d2-ingame-items.png)
+
+**L4D2 — 다운·사망 표시**
+
+다운 상태 체력과 사망 표시를 보여주는 참고 예시입니다.
+
+![L4D2 다운·사망 상태 팀원 표시](docs/images/l4d2-ingame-states.png)
 
 ## 크기와 위치 설정
 
@@ -85,7 +150,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 ## 공개 테스트 참고
 
 - 정상 상태뿐 아니라 다운·매달림·사망 상태도 사용 중인 HUD에서 확인해 주세요.
-- 현재 공개된 0.1.15는 일부 L4D1 생존자 구성에서 초상화나 다운 그림이 다르게 나오거나, 특정 생존자 중복 상황에서 전체 팀원 표시로 전환되지 않을 수 있습니다. 0.1.16 수정은 게임 내 검증을 기다리고 있습니다.
+- 사용자가 실제 게임에서 정상 동작을 확인했습니다. 제공된 예시는 L4D1 정상·다운 상태와 **Current design** 표시입니다. 다른 테마와 상태의 조합은 공개 테스트에서 계속 확인합니다.
 - 표시 문제가 있으면 사용한 HUD·테마, 생존자 수, 문제가 생긴 상태를 함께 알려주세요. 로그는 공개하기 전에 내용을 확인해 주세요.
 
 재배포 조건: [한국어 라이선스](LICENSE) · [영어 번역](LICENSE.en.txt).

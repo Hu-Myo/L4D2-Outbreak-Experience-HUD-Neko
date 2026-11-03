@@ -6,7 +6,9 @@
 
 Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.15**.
 
-**0.1.16 is awaiting in-game testing.** It corrects L4D1 survivor portrait selection, including downed artwork and repeated-character detection. The download above remains the published 0.1.15 build until testing is complete.
+**0.1.16 corrects L4D1 survivor portraits, downed artwork, and repeated-character detection.** The user confirmed normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance.
+
+**Release status:** 0.1.16 has passed the reported in-game test and its ZIP is awaiting publication. The download above still provides 0.1.15, which does not include this L4D1 correction.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
 
@@ -26,7 +28,7 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
 
 ### 2. Add this HUD
 
-1. Get a packaged test build from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases) when one is available. GitHub's **Source code** archives are not ready-to-install builds.
+1. Download the **currently published test ZIP** using the link above or from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases). GitHub's **Source code** archives are not ready-to-install builds.
 2. With the game fully closed, place `NekoExtraHUD.dll` at:
 
    ```text
@@ -34,7 +36,36 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
    ```
 
 3. If the package includes an example `extra_hud.ini`, new users can put it at `<Left 4 Dead 2>/left4dead2/neko/extra_hud.ini`. Keep your existing file when updating so your settings are preserved.
-4. Start the game and load a map. Enter `l4n_menu` in the console, open **Extra Survivor HUD**, and set **Extension: ON**. To preview it in a normal four-survivor game, also enable **Single-player test**.
+4. Start the game and load a map. Enter `l4n_menu` in the console, then select **L4N Plugins → Extra Survivor HUD** and set **Extension: ON**. To preview it in a normal four-survivor game, also enable **Single-player test**.
+
+<details>
+<summary>Show the menu access guide with screenshots</summary>
+
+**1. Optional: choose a key for the Neko menu**
+
+The `\` key shown in this example is the user's chosen binding, **not a default key**. You can use your own binding or enter `l4n_menu` directly in the console after a map has loaded.
+
+<img src="docs/images/menu-key-binding.png" alt="Example of a user-assigned key for opening the Neko menu" width="650">
+
+**2. Open the Neko menu**
+
+Use your assigned key or `l4n_menu` to open the main menu.
+
+<img src="docs/images/menu-neko.png" alt="Neko main menu with the L4N Plugins entry" width="650">
+
+**3. Select L4N Plugins**
+
+Open **L4N Plugins** (shown as **L4N 플러그인** in the Korean menu), then choose **Extra Survivor HUD**.
+
+<img src="docs/images/menu-plugins.png" alt="L4N Plugins menu with Extra Survivor HUD" width="650">
+
+**4. Adjust Extra Survivor HUD**
+
+Turn **Extension: ON** to enable it, choose a theme, and use **Single-player test** if you want a preview with three existing teammates.
+
+<img src="docs/images/menu-extra-hud.png" alt="Extra Survivor HUD options menu" width="650">
+
+</details>
 
 ## What you see in a game
 
@@ -50,7 +81,7 @@ In a standard four-survivor game, seeing **no extra cards is normal**. Use **Sin
 
 ## Options in the game
 
-After a map has loaded, open the console, enter `l4n_menu`, and select **Extra Survivor HUD**. Menu toggles are saved automatically.
+After a map has loaded, open the console, enter `l4n_menu`, and select **L4N Plugins → Extra Survivor HUD**. Menu toggles are saved automatically.
 
 | Option | Default | What it does |
 | --- | --- | --- |
@@ -67,6 +98,40 @@ After a map has loaded, open the console, enter `l4n_menu`, and select **Extra S
 With **In-game HUD**, available item icons include healing items, pills or adrenaline, and throwables. Their appearance depends on your active HUD and the teammate's inventory.
 
 If a teammate is using a Neko model with suitable portrait artwork, the extra card can use that artwork automatically. This follows your existing Neko model selections; there is no separate portrait switch. If suitable artwork is unavailable, the survivor portrait is used.
+
+### Display examples
+
+These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
+
+**L4D1 — normal display with In-game HUD**
+
+Normal survivor portraits and teammate health in the selected HUD appearance.
+
+![L4D1 normal teammate display with In-game HUD](docs/images/l4d1-ingame-normal.png)
+
+**L4D1 — downed display with In-game HUD**
+
+Downed survivor artwork and remaining health.
+
+![L4D1 downed teammate display with In-game HUD](docs/images/l4d1-ingame-downed.png)
+
+**L4D1 — Current design**
+
+The plugin's simple card appearance for teammates in their normal state.
+
+![L4D1 normal teammate cards with Current design](docs/images/l4d1-current-design.png)
+
+**L4D2 — item icons with In-game HUD**
+
+A reference example of healing items, pills or adrenaline, and throwables.
+
+![L4D2 teammate item icons with In-game HUD](docs/images/l4d2-ingame-items.png)
+
+**L4D2 — downed and dead displays**
+
+A reference example of downed health and death displays.
+
+![L4D2 downed and dead teammate displays](docs/images/l4d2-ingame-states.png)
 
 ## Size and position settings
 
@@ -85,7 +150,7 @@ The extra HUD starts at the lower left even if your custom teammate HUD is locat
 ## Public test notes
 
 - Check both normal play and downed, hanging, and dead states with your HUD.
-- The published 0.1.15 build may show mismatched portraits or downed artwork for some L4D1 survivor configurations, or fail to switch to the complete teammate display for certain repeated characters. The 0.1.16 correction is awaiting in-game verification.
+- The user confirmed normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance. Other theme and state combinations remain part of public testing.
 - If something looks wrong, describe your HUD/theme, survivor count, and the state in which it happened. Check a log before sharing it publicly.
 
 Redistribution terms: [Korean license](LICENSE) · [English translation](LICENSE.en.txt).
