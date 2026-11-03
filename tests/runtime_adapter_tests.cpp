@@ -103,6 +103,81 @@ struct ResourceData {
     unsigned char incap[33]{};
     int grenade[33]{},medical[33]{},pills[33]{};
 };
+struct FakeSurvivorClient {
+    static constexpr std::size_t setOffset=0x7c46f0;
+    std::vector<unsigned char> bytes=std::vector<unsigned char>(0x7c5000);
+    IMAGE_DOS_HEADER dos{};
+    IMAGE_NT_HEADERS32 nt{};
+    FakeSurvivorClient() {
+        dos.e_magic=IMAGE_DOS_SIGNATURE;dos.e_lfanew=0x80;
+        nt.Signature=IMAGE_NT_SIGNATURE;nt.FileHeader.Machine=IMAGE_FILE_MACHINE_I386;
+        nt.FileHeader.SizeOfOptionalHeader=sizeof(IMAGE_OPTIONAL_HEADER32);
+        nt.OptionalHeader.Magic=IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+        nt.OptionalHeader.SizeOfImage=static_cast<DWORD>(bytes.size());
+        Headers();Set(2);
+    }
+    void Headers() {
+        std::memcpy(bytes.data(),&dos,sizeof(dos));
+        std::memcpy(bytes.data()+0x80,&nt,sizeof(nt));
+    }
+    void Set(int value) {std::memcpy(bytes.data()+setOffset,&value,sizeof(value));}
+    HMODULE Module() {return reinterpret_cast<HMODULE>(bytes.data());}
+};
+void CheckSurvivorCharacterContext() {
+    using namespace neh;
+    constexpr int legacy[]={4,5,7,6};
+    for(int raw=0;raw<8;++raw) {
+        Check(NormalizeSurvivorCharacter(raw,1)==(raw<4?legacy[raw]:raw),
+              "L4D1 legacy and explicit character IDs normalize to Bill, Zoey, Louis and Francis correctly");
+        Check(NormalizeSurvivorCharacter(raw,2)==raw,
+              "the L4D2 survivor set preserves all eight explicit character IDs");
+        Check(NormalizeSurvivorCharacter(raw,0)==(raw<4?-1:raw)&&
+              NormalizeSurvivorCharacter(raw,3)==(raw<4?-1:raw),
+              "unknown survivor context rejects ambiguous legacy slots but preserves explicit L4D1 identities");
+    }
+    for(int raw:{-1,8,(std::numeric_limits<int>::min)(),(std::numeric_limits<int>::max)()})
+        Check(NormalizeSurvivorCharacter(raw,1)==-1&&NormalizeSurvivorCharacter(raw,2)==-1&&
+              NormalizeSurvivorCharacter(raw,0)==-1,"out-of-range character IDs never index a portrait or policy array");
+    const auto priorClient=g.client;FakeSurvivorClient client;g.client=client.Module();
+    for(int set:{1,2,0,1,3,-1,(std::numeric_limits<int>::max)(),2}) {
+        client.Set(set);
+        Check(ReadSurvivorSet()==(set==1||set==2?set:0),
+              "survivor-set reads use the current value and never retain a prior valid context");
+    }
+    auto reject=[&](const char* label) {
+        client.Headers();Check(ReadSurvivorSet()==0,label);
+        client=FakeSurvivorClient();g.client=client.Module();
+    };
+    client.dos.e_magic=0;reject("a bad DOS signature cannot supply survivor context");
+    for(LONG offset:{-1L,0L,1024L*1024+1}) {
+        client.dos.e_lfanew=offset;reject("negative, overlapping and oversized PE header offsets fail closed");
+    }
+    client.nt.Signature=0;reject("a bad NT signature cannot supply survivor context");
+    client.nt.FileHeader.Machine=IMAGE_FILE_MACHINE_AMD64;reject("a non-x86 image cannot supply the pinned survivor-set RVA");
+    client.nt.FileHeader.SizeOfOptionalHeader=0;reject("a truncated optional header cannot supply survivor context");
+    client.nt.OptionalHeader.Magic=IMAGE_NT_OPTIONAL_HDR64_MAGIC;reject("a PE32+ image is not interpreted using PE32 offsets");
+    client.nt.OptionalHeader.SizeOfImage=static_cast<DWORD>(FakeSurvivorClient::setOffset);
+    reject("the entire survivor-set integer must lie inside the declared image");
+    client.nt.OptionalHeader.SizeOfImage=1024u*1024u*1024u+1;
+    reject("an implausibly large declared image fails the survivor-set bound");
+    g.client=nullptr;Check(ReadSurvivorSet()==0,"a missing client module yields unknown survivor context");
+    g.client=reinterpret_cast<HMODULE>(1);Check(ReadSurvivorSet()==0,"an unreadable module header fails without dereferencing invalid memory");
+    auto* protectedClient=static_cast<unsigned char*>(VirtualAlloc(nullptr,client.bytes.size(),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    Check(protectedClient!=nullptr,"survivor context unreadability fixture owns a complete image allocation");
+    std::memcpy(protectedClient,client.bytes.data(),client.bytes.size());g.client=reinterpret_cast<HMODULE>(protectedClient);
+    DWORD previous=0,ignored=0;
+    Check(VirtualProtect(protectedClient+FakeSurvivorClient::setOffset,sizeof(int),PAGE_NOACCESS,&previous)!=FALSE,
+          "survivor-set value can become unreadable while valid PE headers remain readable");
+    Check(ReadSurvivorSet()==0,"an unreadable survivor-set integer yields unknown instead of retaining the last value");
+    Check(VirtualProtect(protectedClient+FakeSurvivorClient::setOffset,sizeof(int),previous,&ignored)!=FALSE&&ReadSurvivorSet()==2,
+          "survivor context recovers from a readable current value after access is restored");
+    Check(VirtualProtect(protectedClient,sizeof(IMAGE_DOS_HEADER),PAGE_NOACCESS,&previous)!=FALSE,
+          "the current module's DOS header can become unreadable independently of its context field");
+    Check(ReadSurvivorSet()==0,"an unreadable current PE header cannot reuse earlier context validation");
+    Check(VirtualProtect(protectedClient,sizeof(IMAGE_DOS_HEADER),previous,&ignored)!=FALSE&&
+          VirtualFree(protectedClient,0,MEM_RELEASE)!=FALSE,"survivor-set memory fixture restores and releases its allocation");
+    g.client=priorClient;
+}
 void CheckResourceAdapter() {
     using namespace neh;
     FakeVgui vgui;g.vgui=&vgui;
@@ -284,12 +359,13 @@ void CheckSurvivorHealthAdapter() {
     engineTable[5]=reinterpret_cast<void*>(&FakeScreen);engineTable[8]=reinterpret_cast<void*>(&FakePlayerInfo);
     engineTable[11]=reinterpret_cast<void*>(&FakeConsole);engineTable[12]=reinterpret_cast<void*>(&FakeLocal);
     engineTable[21]=reinterpret_cast<void*>(&FakeMaxPlayers);engineTable[26]=reinterpret_cast<void*>(&FakeInGame);
-    FakeEngine engine{engineTable};FakeVgui vgui;
-    g=State();g.ready=true;g.engine=&engine;g.entities=&entities;g.vgui=&vgui;
+    FakeEngine engine{engineTable};FakeVgui vgui;FakeSurvivorClient client;
+    g=State();g.ready=true;g.engine=&engine;g.entities=&entities;g.vgui=&vgui;g.client=client.Module();
     g.nextSelfScan=GetTickCount()+60000;g_runtimeCounters={};
-    Runtime runtime;std::string error;
+    Runtime runtime;std::string error;int lastSurvivorSet=-1;
     auto read=[&]() {
         const auto snapshot=runtime.ReadSnapshot(error);
+        lastSurvivorSet=snapshot.survivorSet;
         const auto found=std::find_if(snapshot.players.begin(),snapshot.players.end(),
                                       [](const Player& p){return p.index==6;});
         if(!error.empty()||!snapshot.inGame||snapshot.players.size()!=2||found==snapshot.players.end()) {
@@ -301,6 +377,37 @@ void CheckSurvivorHealthAdapter() {
     Check(player.health==80&&player.temporaryHealth==79&&player.alive&&
           g_runtimeCounters.nativeHealthReads==1&&g_runtimeCounters.resourceHealthReads==1,
           "snapshot uses native total once and stores its included temporary portion instead of adding buffer again");
+    Check(lastSurvivorSet==2&&player.rawCharacter==0&&player.character==0,
+          "the complete L4D2 snapshot fixture supplies real current context rather than assuming raw slots are canonical");
+    for(const auto& context:std::array<std::array<int,3>,7>{{{1,0,4},{1,2,7},{1,3,6},{2,0,0},{0,0,-1},{0,4,4},{2,8,-1}}}) {
+        client.Set(context[0]);survivor.character=context[1];player=read();
+        Check(lastSurvivorSet==context[0]&&player.rawCharacter==context[1]&&player.character==context[2]&&
+              player.index==6&&player.name=="Player 6"&&player.alive&&!player.incapacitated&&!player.hanging&&
+              player.health==80&&player.temporaryHealth==79&&player.maxHealth==100,
+              "live context changes normalize only character identity while preserving raw diagnostics, player ID, name and health state");
+    }
+    client.Set(1);survivor.character=0;player=read();
+    FakeSurvivorHealth localSurvivor{healthTable};localSurvivor.character=4;
+    FakeNetworkable localNetwork{networkTable,&playerClass,&localSurvivor};entities.players[1]=&localNetwork;
+    for(int set:{1,2}) {
+        client.Set(set);const auto shared=runtime.ReadSnapshot(error);
+        Check(error.empty()&&shared.survivorSet==set&&shared.players.size()==2&&
+              shared.players[0].index==1&&shared.players[0].rawCharacter==4&&shared.players[0].character==4&&
+              shared.players[1].index==6&&shared.players[1].rawCharacter==0&&shared.players[1].character==(set==1?4:0)&&
+              shared.localIndex==1&&shared.viewIndex==1,
+              "every player in a snapshot shares current map context while preserving local and teammate raw identity");
+    }
+    entities.players.erase(1);client.Set(1);player=read();
+    client.dos.e_magic=0;client.Headers();player=read();
+    Check(lastSurvivorSet==0&&player.rawCharacter==0&&player.character==-1&&player.health==80&&g.ready,
+          "invalid live client metadata yields an unknown character without losing the roster, health or running adapter");
+    client.dos.e_magic=IMAGE_DOS_SIGNATURE;client.Headers();player=read();
+    engine.inGame=false;const auto exited=runtime.ReadSnapshot(error);
+    Check(!exited.inGame&&exited.survivorSet==0&&exited.players.empty(),
+          "map exit resets snapshot context rather than publishing the previous L4D1 survivor set");
+    engine.inGame=true;client.Set(2);player=read();
+    Check(lastSurvivorSet==2&&player.rawCharacter==0&&player.character==0,
+          "a new live map reads L4D2 context without reusing the preceding L4D1 normalization");
     survivor.total=79;player=read();
     Check(player.health==79&&player.temporaryHealth==78,
           "each snapshot reads the engine's newly decayed and integer-rounded total without recomputing raw buffer");
@@ -1647,6 +1754,7 @@ int main() {
     void* nullVtable=nullptr;
     int result=0;
     Check(!Call(&nullVtable,0,result),"invalid virtual call rejected");
+    CheckSurvivorCharacterContext();
     CheckResourceAdapter();
     CheckSurvivorHealthAdapter();
     CheckHudBoundsAdapter();

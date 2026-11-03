@@ -365,6 +365,8 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
         if(!layout.detail.empty())description<<" detail=["<<layout.detail<<']';
         description<<" roster=[";
         for(const auto& player:snapshot.players)description<<player.index<<',';
+        description<<"] survivor_set="<<snapshot.survivorSet<<" raw_characters=[";
+        for(const auto& player:snapshot.players)description<<player.index<<':'<<player.rawCharacter<<',';
         description<<"] characters=[";
         for(const auto& player:snapshot.players)description<<player.index<<':'<<player.character<<',';
         description<<"] model_portraits=[";
@@ -490,7 +492,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.15 experimental x86: starting; game playtest required.");
+    Log("NekoExtraHUD 0.1.16 experimental x86: starting; game playtest required.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -628,7 +630,7 @@ const char* BuildMenu() {
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.15-test";}
+    const char* GetVersion() override{return "0.1.16-test";}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
     const char* RequestHudMenu(bool title) override{return title?"Extra Survivor HUD":BuildMenu();}

@@ -4,6 +4,7 @@
 #endif
 #include <windows.h>
 #include "types.hpp"
+#include "survivor_character.hpp"
 #include "game_hud_theme.hpp"
 #include "runtime_counters.hpp"
 #include "draw_trace.hpp"
@@ -738,6 +739,24 @@ const void* ModelAddress(const void* base,std::size_t offset,std::size_t size) {
 }
 template<class T> bool ModelRead(const void* base,std::size_t offset,T& value) {
     return Read(ModelAddress(base,offset,sizeof(value)),value);
+}
+int ReadSurvivorSet() {
+    // The plugin hash-gates client.dll before initialization. Also constrain
+    // this fixed RVA to its current PE32 image before the single value read.
+    constexpr std::size_t offset=0x7c46f0;
+    IMAGE_DOS_HEADER dos{};
+    if (!Read(g.client,dos) || dos.e_magic!=IMAGE_DOS_SIGNATURE ||
+        dos.e_lfanew<static_cast<LONG>(sizeof(dos)) || dos.e_lfanew>1024*1024) return 0;
+    IMAGE_NT_HEADERS32 nt{};
+    if (!ModelRead(g.client,static_cast<std::size_t>(dos.e_lfanew),nt) ||
+        nt.Signature!=IMAGE_NT_SIGNATURE || nt.FileHeader.Machine!=IMAGE_FILE_MACHINE_I386 ||
+        nt.FileHeader.SizeOfOptionalHeader<sizeof(IMAGE_OPTIONAL_HEADER32) ||
+        nt.OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
+        nt.OptionalHeader.SizeOfImage<offset+sizeof(int) || nt.OptionalHeader.SizeOfImage>1024u*1024u*1024u ||
+        static_cast<std::size_t>(dos.e_lfanew)>nt.OptionalHeader.SizeOfImage-sizeof(nt)) return 0;
+    int set=0;
+    if (!ModelRead(g.client,offset,set) || (set!=1 && set!=2)) return 0;
+    return set;
 }
 bool ReadModelPortraitIdentity(void* entity,ModelPortraitIdentity& identity) {
     void* model=nullptr;void* wrapper=nullptr;void* header=nullptr;
@@ -1655,6 +1674,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         error=g.resourceError;
         g.status=error; return {};
     }
+    snapshot.survivorSet=ReadSurvivorSet();
     snapshot.viewIndex=snapshot.localIndex;
     void* localBase=nullptr;
     ClientClass localClass{};
@@ -1707,7 +1727,10 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         if (fields) {
             int character=-1;
             unsigned char hanging=0,thirdStrike=0;
-            if (Scalar(entityBase,fields->character,character) && character>=0 && character<=7) player.character=character;
+            if (Scalar(entityBase,fields->character,character)) {
+                player.rawCharacter=character;
+                player.character=NormalizeSurvivorCharacter(character,snapshot.survivorSet);
+            }
             if (Scalar(entityBase,fields->hanging,hanging) && hanging<=1) player.hanging=hanging!=0;
             if (Scalar(entityBase,fields->thirdStrike,thirdStrike) && thirdStrike<=1) player.blackWhite=thirdStrike!=0;
         }
@@ -1733,6 +1756,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
     std::ostringstream status;
     status<<"resource entity="<<g.resourceIndex<<" survivors="<<snapshot.players.size()
           <<" local="<<snapshot.localIndex<<" view="<<snapshot.viewIndex
+          <<" survivorSet="<<snapshot.survivorSet
           <<" selfHud="<<(snapshot.hasSelfHudBounds?"yes":"unavailable")
           <<" selfHudSource="<<(g.selfPanelIsNamed?"named_local_player":snapshot.hasSelfHudBounds?"verified_target":"none")
           <<" selfScan="<<g.selfDiscovery.lastResult<<" selfScanNodes="<<g.selfDiscovery.visited

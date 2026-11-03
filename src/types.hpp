@@ -31,6 +31,8 @@ struct ModelPortrait {
 struct Player {
     int index=0;
     std::string name;
+    // Canonical portrait/policy ID: Nick, Rochelle, Coach, Ellis, Bill, Zoey,
+    // Francis, Louis. Unknown survivor-set reads never imply the L4D2 set.
     int character=-1;
     bool alive=false, incapacitated=false, hanging=false, blackWhite=false;
     // health is the displayed total. temporaryHealth is the temporary
@@ -39,6 +41,7 @@ struct Player {
     float temporaryHealth=0;
     int throwable=0, medical=0, pills=0;
     ModelPortrait modelPortrait;
+    int rawCharacter=-1;
 };
 struct HudSlot {
     std::uint32_t panel=0;
@@ -56,6 +59,7 @@ struct Snapshot {
     bool inGame=false;
     Rect selfHudBounds;
     bool hasSelfHudBounds=false;
+    int survivorSet=0; // 1=L4D1, 2=L4D2, 0=unavailable or not yet initialized.
 };
 struct Placement {
     int playerIndex=0;

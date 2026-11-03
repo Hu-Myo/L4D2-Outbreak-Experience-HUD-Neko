@@ -1,5 +1,6 @@
 #include "types.hpp"
 #include "hud_policy.hpp"
+#include "survivor_character.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -354,6 +355,71 @@ void CheckReplacementPolicy() {
     policy.Reset();Check(policy.Observe(duplicate,0xffffffffu,100000)==ReplacementReason::None,
           "an unavailable root cannot initialize a new replacement decision");
 }
+void CheckNormalizedCharacterPolicy() {
+    auto normalize=[](Snapshot& snapshot,int survivorSet) {
+        snapshot.survivorSet=survivorSet;
+        for(auto& player:snapshot.players)
+            player.character=NormalizeSurvivorCharacter(player.rawCharacter,survivorSet);
+    };
+    auto legacy=Roster(3);
+    for(std::size_t n=0;n<legacy.players.size();++n) {
+        auto& player=legacy.players[n];player.rawCharacter=static_cast<int>(n);
+        player.name="same nickname";player.modelPortrait.modelId=77;player.modelPortrait.revision=55;
+    }
+    normalize(legacy,1);
+    Check(legacy.players[0].character==4&&legacy.players[1].character==5&&
+          legacy.players[2].character==7&&legacy.players[3].character==6&&
+          ObserveReplacement(legacy).reason==ReplacementReason::None&&ObserveReplacement(legacy).healthyUnique,
+          "L4D1 legacy Bill, Zoey, Louis and Francis remain unique despite identical nicknames and Neko model IDs");
+    for(const auto alias:std::vector<std::pair<int,int>>{{0,4},{1,5},{2,7},{3,6}}) {
+        auto duplicate=legacy;duplicate.players[0].rawCharacter=alias.first;duplicate.players[1].rawCharacter=alias.second;
+        normalize(duplicate,1);
+        Check(ObserveReplacement(duplicate).reason==ReplacementReason::DuplicateCharacter,
+              "legacy and explicit IDs for the same L4D1 character select replacement after canonical normalization");
+    }
+    auto duplicate=legacy;duplicate.players[1].rawCharacter=4;normalize(duplicate,1);
+    ReplacementPolicy policy;
+    Check(policy.Observe(duplicate,10,100)==ReplacementReason::DuplicateCharacter,
+          "raw zero and explicit four are recognized as two Bills on an L4D1 map");
+    auto unique=duplicate;normalize(unique,2);
+    Check(unique.players[0].character==0&&unique.players[1].character==4&&
+          ObserveReplacement(unique).reason==ReplacementReason::None&&ObserveReplacement(unique).healthyUnique&&
+          policy.Observe(unique,10,200)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,10,2199)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,10,2200)==ReplacementReason::None,
+          "changing to L4D2 separates raw Nick and explicit Bill but preserves the two-second recovery hold");
+    policy.Observe(duplicate,10,2300);policy.Observe(unique,10,2400);
+    auto unknown=unique;normalize(unknown,0);
+    Check(unknown.players[0].character==-1&&unknown.players[1].character==4&&
+          policy.Observe(unknown,10,10000)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,10,10001)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,10,12000)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,10,12001)==ReplacementReason::None,
+          "unknown context cannot reinterpret ambiguous raw IDs or complete the healthy unique release window");
+    policy.Observe(duplicate,10,13000);policy.Reset();
+    Check(policy.Observe(unknown,10,14000)==ReplacementReason::None&&
+          policy.Observe(duplicate,10,14001)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(unique,11,14002)==ReplacementReason::None,
+          "explicit reset and a new HUD lifetime discard a prior normalized duplicate decision");
+    auto cfg=Config();cfg.singlePlayerTest=true;
+    for(const auto theme:{HudTheme::Current,HudTheme::GameHud}) {
+        cfg.theme=theme;
+        auto l4d2=legacy;normalize(l4d2,2);
+        l4d2.players[1].health=37;l4d2.players[1].incapacitated=true;
+        l4d2.players[2].alive=false;l4d2.players[2].health=0;
+        l4d2.players[3].hanging=true;l4d2.players[3].health=96;
+        const auto first=PlanLayout(legacy,Native(3),cfg,960,480);
+        const auto second=PlanLayout(l4d2,Native(3),cfg,960,480);
+        bool same=first.cards.size()==second.cards.size();
+        for(std::size_t n=0;same&&n<first.cards.size();++n) {
+            const auto& a=first.cards[n];const auto& b=second.cards[n];
+            same=a.playerIndex==b.playerIndex&&a.ordinal==b.ordinal&&a.bounds.x==b.bounds.x&&a.bounds.y==b.bounds.y&&
+                 a.bounds.w==b.bounds.w&&a.bounds.h==b.bounds.h;
+        }
+        Check(same&&Ids(first)==std::vector<int>{2,3,4}&&Ids(second)==std::vector<int>{2,3,4},
+              "character context and down, dead or hanging state do not change real player identities or placement in either theme");
+    }
+}
 void CheckAllReplacementRosters() {
     for(const auto theme:{HudTheme::Current,HudTheme::GameHud})for(const auto screen:
         std::vector<std::pair<int,int>>{{320,240},{960,480}})for(int sources=1;sources<=4;++sources)
@@ -373,7 +439,7 @@ void CheckAllReplacementRosters() {
 } // namespace
 int main() {
     CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSizingAndGuards();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
-    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckAllReplacementRosters();
+    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckAllReplacementRosters();
     std::cout<<"Layout/policy: "<<checks<<" checks passed (supplement and full replacement; lower-left first-fit).\n";
     return 0;
 }

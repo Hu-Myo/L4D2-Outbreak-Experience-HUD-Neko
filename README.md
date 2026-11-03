@@ -4,7 +4,9 @@
 
 **[Download now — 0.1.15 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.15-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.15-public-test.zip)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. Public test version: **0.1.15**.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.15**.
+
+**0.1.16 is awaiting in-game testing.** It corrects L4D1 survivor portrait selection, including downed artwork and repeated-character detection. The download above remains the published 0.1.15 build until testing is complete.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
 
@@ -20,7 +22,7 @@ Following the [NekoShaders & L4N author's Workshop instructions](https://steamco
 2. In the game folder, open `left4dead2/addons/workshop` and change `3558049615.vpk` to `3558049615.zip`. Enable file extensions in Explorer if they are hidden.
 3. Unpack it beside `left4dead2.exe`, replacing files as directed by the author. See the included `readme_l4n.txt` for details and updates.
 
-This HUD's 0.1.15 test build targets **Neko 2.51.0**. Other Neko or game versions may not show the extra HUD.
+This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the extra HUD.
 
 ### 2. Add this HUD
 
@@ -83,7 +85,7 @@ The extra HUD starts at the lower left even if your custom teammate HUD is locat
 ## Public test notes
 
 - Check both normal play and downed, hanging, and dead states with your HUD.
-- Some L4D1 survivor configurations may show mismatched survivor portraits or downed artwork, or may fail to switch to the complete teammate display for certain repeated characters.
+- The published 0.1.15 build may show mismatched portraits or downed artwork for some L4D1 survivor configurations, or fail to switch to the complete teammate display for certain repeated characters. The 0.1.16 correction is awaiting in-game verification.
 - If something looks wrong, describe your HUD/theme, survivor count, and the state in which it happened. Check a log before sharing it publicly.
 
 Redistribution terms: [Korean license](LICENSE) · [English translation](LICENSE.en.txt).
