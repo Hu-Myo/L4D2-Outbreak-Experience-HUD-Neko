@@ -2,6 +2,8 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
+**[Download now — 0.1.15 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.15-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.15-public-test.zip)**
+
 Extra teammate HUD cards for Left 4 Dead 2 with Neko. Public test version: **0.1.15**.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
