@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <new>
 #include <set>
 #include <cmath>
 #include <string>
@@ -53,9 +54,12 @@ struct Surface {
     std::map<int,int> materialQueries,sizeQueries;
     std::map<std::string,int> existingByPath,lookupsByPath;
     bool throwModelLookup=false,throwModelUpload=false,throwMaterialQuery=false;
+    bool replaceSizeMethodOnQuery=false;
+    int replacementSizeCalls=0;
     int throwSizeId=0;
     std::vector<TextureRecord> textureDrawsWithUv;
 };
+void __fastcall ReplacementTextureSize(void*,void*,int,int*,int*);
 struct FakeMaterial;
 struct FakeMaterialSystem;
 bool __fastcall IsErrorMaterial(FakeMaterial*,void*);
@@ -64,6 +68,7 @@ struct FakeMaterial {
     void** vtable;
     std::array<void*,43> methods{};
     bool error=true,throwCheck=false;
+    void* revokePageAfterCheck=nullptr;
     int checks=0;
     FakeMaterial() : vtable(methods.data()) {methods[42]=reinterpret_cast<void*>(&IsErrorMaterial);}
 };
@@ -74,10 +79,16 @@ struct FakeMaterialSystem {
     std::set<std::string> available;
     std::map<std::string,int> lookups;
     bool invalidArguments=false,throwFind=false,invalidReturn=false;
+    void* returnedMaterial=nullptr;
     FakeMaterialSystem() : vtable(methods.data()) {methods[71]=reinterpret_cast<void*>(&FindMaterial);}
 };
 bool __fastcall IsErrorMaterial(FakeMaterial* self,void*) {
-    ++self->checks;if(self->throwCheck)RaiseException(0xE0010005,0,0,nullptr);return self->error;
+    ++self->checks;if(self->throwCheck)RaiseException(0xE0010005,0,0,nullptr);
+    const bool error=self->error;
+    if(self->revokePageAfterCheck) {
+        DWORD previous=0;VirtualProtect(self->revokePageAfterCheck,4096,PAGE_NOACCESS,&previous);
+    }
+    return error;
 }
 void* __fastcall FindMaterial(FakeMaterialSystem* self,void*,const char* name,const char* group,bool complain,const char* prefix) {
     self->invalidArguments|=!name||!group||std::strcmp(group,"VGUI textures")!=0||complain||prefix!=nullptr;
@@ -85,7 +96,8 @@ void* __fastcall FindMaterial(FakeMaterialSystem* self,void*,const char* name,co
     ++self->lookups[name];
     if(self->throwFind)RaiseException(0xE0010006,0,0,nullptr);
     if(self->invalidReturn)return reinterpret_cast<void*>(1);
-    self->material.error=self->available.count(name)==0;return &self->material;
+    self->material.error=self->available.count(name)==0;
+    return self->returnedMaterial?self->returnedMaterial:&self->material;
 }
 Surface& S(void* self) { return *static_cast<Surface*>(self); }
 bool Channels(int r,int g,int b,int a) {
@@ -163,6 +175,7 @@ void __fastcall TextureFile(void* self,void*,int id,const char* path,int filter,
 bool __fastcall GetTextureFile(void* self,void*,int id,char* path,int capacity) {
     auto& s=S(self);++s.materialQueries[id];
     if(s.throwMaterialQuery)RaiseException(0xE0010003,0,0,nullptr);
+    if(s.replaceSizeMethodOnQuery)s.methods[30]=reinterpret_cast<void*>(&ReplacementTextureSize);
     if(!path||capacity<2) {s.invalidArguments=true;return false;}
     const auto found=s.borrowedMaterials.find(id);
     if(found==s.borrowedMaterials.end()||found->second.size()>=static_cast<std::size_t>(capacity))return false;
@@ -175,6 +188,9 @@ void __fastcall TextureSize(void* self,void*,int id,int* width,int* height) {
     const auto custom=s.borrowedSizes.find(id);
     if(custom!=s.borrowedSizes.end()) {*width=custom->second.first;*height=custom->second.second;return;}
     *width=*height=64;
+}
+void __fastcall ReplacementTextureSize(void* self,void* ignored,int id,int* width,int* height) {
+    ++S(self).replacementSizeCalls;TextureSize(self,ignored,id,width,height);
 }
 bool __fastcall ValidTexture(void* self,void*,int id) {
     auto& s=S(self); ++s.textureValidations;
@@ -871,6 +887,114 @@ void CheckModelPortraits() {
     Check(!materials.invalidArguments,"verified MaterialSystem and material methods retain their exact independent x86 call shapes");
     CheckClean(surface);CheckClean(another);g_runtimeCounters={};
 }
+void CheckModelMemoryQueries() {
+    using namespace neh;
+    Surface surface;Bind(surface);
+    Renderer renderer;renderer.Initialize(&surface);
+    neh::Snapshot snapshot;snapshot.inGame=true;snapshot.localIndex=snapshot.viewIndex=1;
+    neh::Layout layout;Settings settings;
+    for(int n=0;n<8;++n) {
+        const auto path="vgui/l4n_s/query_region_"+std::to_string(n);
+        const int id=9200+n;
+        surface.borrowedTextures.insert(id);surface.borrowedMaterials[id]=path;surface.borrowedSizes[id]={64,64};
+        surface.existingByPath[path]=id;
+        Player player;player.index=n+2;player.name="Region survivor";player.character=-1;
+        player.alive=true;player.health=100;player.maxHealth=100;
+        player.modelPortrait={static_cast<std::uint64_t>(100+n),0,id,0,path,{}};
+        snapshot.players.push_back(player);layout.cards.push_back({n+2,0,n,{n*320,900,320,96}});
+    }
+    g_runtimeCounters={};surface.replaceSizeMethodOnQuery=true;
+    Check(renderer.Draw(snapshot,layout,settings),"eight validated model portraits submit a complete draw");
+    const auto queries=g_runtimeCounters.virtualQueries;
+    std::cout<<"Model region queries for eight portraits: "<<queries<<'\n';
+    Check(g_runtimeCounters.modelPortraitDraws==8&&surface.materialQueries.size()==8&&surface.sizeQueries.size()==8,
+          "region sharing still reads the live name and size for every distinct borrowed portrait");
+    Check(queries>0&&queries<=8,
+          "one draw shares bounded object, vtable and code-region queries across distinct model portraits");
+    Check(surface.replacementSizeCalls==8,
+          "region sharing re-reads a vtable method replaced by an earlier callback within the same draw");
+    surface.replaceSizeMethodOnQuery=false;surface.methods[30]=reinterpret_cast<void*>(&TextureSize);
+    g_runtimeCounters={};surface.materialQueries.clear();surface.sizeQueries.clear();
+    renderer.Draw(snapshot,layout,settings);
+    Check(g_runtimeCounters.virtualQueries>0&&g_runtimeCounters.virtualQueries<=8&&
+          surface.materialQueries.size()==8&&surface.sizeQueries.size()==8,
+          "the next draw performs fresh page queries and live asset validation instead of retaining object or method pointers");
+    surface.throwMaterialQuery=true;surface.texturedDrawIds.clear();g_runtimeCounters={};
+    renderer.Draw(snapshot,layout,settings);
+    Check(surface.texturedDrawIds.empty()&&g_runtimeCounters.modelPortraitDraws==0,
+          "guarded material-query exceptions never authorize stale portrait rendering");
+    surface.throwMaterialQuery=false;surface.texturedDrawIds.clear();g_runtimeCounters={};
+    renderer.Draw(snapshot,layout,settings);
+    Check(g_runtimeCounters.virtualQueries>0&&g_runtimeCounters.modelPortraitDraws==8&&surface.texturedDrawIds.size()==8,
+          "a draw after guarded asset exceptions starts fresh and recovers the current portraits");
+    CheckClean(surface);
+
+    Surface guardedSurface;Bind(guardedSurface);FakeMaterialSystem materials;
+    Renderer guardedRenderer;guardedRenderer.Initialize(&guardedSurface,&materials);
+    auto guardedSnapshot=::Snapshot("Guarded material",-1);auto guardedLayout=::Layout();
+    guardedSnapshot.players.reserve(2);
+    auto& model=guardedSnapshot.players.front().modelPortrait;
+    auto* memory=VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
+    Check(memory!=nullptr,"a dedicated material page is available for protection-change regressions");
+    auto* material=new(memory) FakeMaterial;material->error=false;materials.returnedMaterial=material;
+    unsigned revision=500;
+    auto attempt=[&]() {
+        const auto path="vgui/l4n_s/protection_"+std::to_string(++revision);
+        materials.available.insert(path);model={revision,0,0,0,path,{}};
+        guardedSurface.texturedDrawIds.clear();g_runtimeCounters={};
+        guardedRenderer.Draw(guardedSnapshot,guardedLayout,settings);
+    };
+    auto protect=[&](void* page,DWORD access) {
+        DWORD previous=0;Check(VirtualProtect(page,4096,access,&previous)!=FALSE,
+                              "the dedicated test page accepts the requested protection");
+    };
+    attempt();Check(g_runtimeCounters.modelPortraitDraws==1&&material->checks==1,
+                    "a readable material page calls its current executable method");
+    protect(memory,PAGE_NOACCESS);attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==0&&guardedSurface.texturedDrawIds.empty(),
+          "a previously readable material changed to no-access is rejected on the next draw");
+    protect(memory,PAGE_READWRITE|PAGE_GUARD);attempt();
+    MEMORY_BASIC_INFORMATION page{};VirtualQuery(memory,&page,sizeof(page));
+    Check(g_runtimeCounters.modelPortraitDraws==0&&(page.Protect&PAGE_GUARD)!=0,
+          "guarded object pages are rejected without consuming their guard protection");
+    protect(memory,PAGE_READWRITE);attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==1&&material->checks==2,
+          "restoring material readability recovers on the next draw without stale denied-region entries");
+    void* nonExecutable=VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
+    Check(nonExecutable!=nullptr,"a dedicated method page is available for execution-protection regressions");
+    material->methods[42]=nonExecutable;attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==0&&material->checks==2,
+          "a current vtable method in a readable non-executable page is rejected instead of invoked");
+    protect(nonExecutable,PAGE_EXECUTE_READ|PAGE_GUARD);attempt();
+    VirtualQuery(nonExecutable,&page,sizeof(page));
+    Check(g_runtimeCounters.modelPortraitDraws==0&&(page.Protect&PAGE_GUARD)!=0,
+          "guarded executable method pages are rejected without entering them");
+    protect(nonExecutable,PAGE_NOACCESS);attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==0,
+          "no-access method pages never reuse executable permission metadata from an earlier draw");
+    material->methods[42]=reinterpret_cast<void*>(&IsErrorMaterial);material->throwCheck=true;attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==0&&material->checks==3,
+          "a live replacement method still runs under the existing exception guard");
+    material->throwCheck=false;attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==1&&material->checks==4,
+          "the next draw recovers after an actual material method exception and re-reads its vtable");
+    auto second=guardedSnapshot.players.front();second.index=9;
+    const std::string revokedPath="vgui/l4n_s/revoked_during_draw";
+    materials.available.insert(revokedPath);second.modelPortrait={700,0,0,0,revokedPath,{}};
+    guardedSnapshot.players.push_back(second);guardedLayout.cards.push_back({9,0,1,{1050,900,320,96}});
+    material->revokePageAfterCheck=memory;attempt();
+    VirtualQuery(memory,&page,sizeof(page));
+    Check(g_runtimeCounters.modelPortraitDraws==1&&page.Protect==PAGE_NOACCESS,
+          "revoking an already-cached object page within a draw still guards its next actual memory read and omits only that portrait");
+    protect(memory,PAGE_READWRITE);material->revokePageAfterCheck=nullptr;
+    ++guardedSnapshot.players[1].modelPortrait.revision;attempt();
+    Check(g_runtimeCounters.modelPortraitDraws==2&&material->checks==7,
+          "both portraits recover on the following draw after a same-draw guarded-read fault invalidates region metadata");
+    material->~FakeMaterial();
+    Check(VirtualFree(memory,0,MEM_RELEASE)!=FALSE&&VirtualFree(nonExecutable,0,MEM_RELEASE)!=FALSE,
+          "dedicated protection-test pages are released after the renderer stops using them");
+    CheckClean(guardedSurface);g_runtimeCounters={};
+}
 } // namespace
 
 int main() {
@@ -994,6 +1118,7 @@ int main() {
     CheckBorrowedTextureLifetimes();
     CheckHeldInventoryAndStateFallbacks();
     CheckModelPortraits();
+    CheckModelMemoryQueries();
     std::cout<<"Renderer ABI: "<<checks<<" checks passed (actual Surface031 slots 11/19/72)\n";
     return 0;
 }

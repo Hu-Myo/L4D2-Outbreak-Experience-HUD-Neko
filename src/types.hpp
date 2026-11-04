@@ -19,6 +19,7 @@ struct Settings {
     int offsetY = 0;
     HudTheme theme = HudTheme::Current;
     bool singlePlayerTest = false;
+    bool replaceL4d1Team = true;
 };
 struct ModelPortrait {
     // Nonzero only for a currently applied, validated Neko model. Changes on

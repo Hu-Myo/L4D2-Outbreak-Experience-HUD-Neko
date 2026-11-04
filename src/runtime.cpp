@@ -346,6 +346,13 @@ struct HudThemeSource {
     std::size_t state=0;
     std::array<int,3> items{};
 };
+struct HudThemeObservation {
+    SafePanel panel;
+    std::size_t state=0;
+    GameHudCardStyle accepted,pending;
+    unsigned confirmations=0;
+    DWORD pendingSince=0;
+};
 struct HudThemeCache {
     void* panelInterface=nullptr;
     void* vguiInterface=nullptr;
@@ -354,7 +361,14 @@ struct HudThemeCache {
     SafePanel root;
     int width=0,height=0;
     DWORD nextCapture=0;
+    DWORD noSourcesSince=0;
+    bool noSources=false,retryPending=false;
     std::vector<HudThemeSource> sources;
+    std::vector<SafePanel> generationSources;
+    std::vector<HudThemeObservation> observations;
+    std::vector<std::uint32_t> schemes;
+    std::array<DWORD,4> failureSince{};
+    std::array<bool,4> failed{};
     GameHudTheme theme;
 };
 // These addresses are comparison keys only. Every access starts from the
@@ -1320,12 +1334,14 @@ void StoreThemeIcon(GameHudTheme& theme,const ThemeIcon& icon) {
     else if (theme.icons.size()<96) theme.icons.push_back(icon);
 }
 bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& player,
-                      ThemeCapturePass& pass,GameHudTheme& theme,GameHudCardStyle& style) {
+                      ThemeCapturePass& pass,GameHudTheme& theme,GameHudCardStyle& style,
+                      GameHudCardStyle* resourceSignature=nullptr) {
     const Rect container=slot.hasVisibleBounds?slot.visibleBounds:slot.bounds;
     if (container.w<=0 || container.h<=0) return false;
     std::vector<SafePanel> nodes;if (!TraverseSafe(source,nodes,128,512)) return false;
     style.width=container.w;style.height=container.h;
     std::array<unsigned,9> count{};
+    std::array<Rect,9> resourceRects{};
     std::unordered_map<std::string,unsigned> decorations;
     std::vector<std::pair<std::string,ThemeImage>> images;
     for (std::size_t order=0;order<nodes.size();++order) {
@@ -1343,7 +1359,10 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
         const int sourceItem=role==6?player.throwable:role==7?player.medical:role==8?player.pills:0;
         if (!ThemeObject(object,g.client,vtable) ||
             !ThemeWidgetFor(panel,object,container,static_cast<int>(order),widget,raw,visible,role>=6 && sourceItem<=0)) continue;
-        if (role>=0) ++count[role];
+        if (role>=0) {
+            ++count[role];
+            resourceRects[role]={raw.x-slot.bounds.x,raw.y-slot.bounds.y,raw.w,raw.h};
+        }
         if (role==0 && ThemeObject(object,g.client,0x65d98c)) {
             Color draw{255,255,255,255};ThemeColor(object,0x16c,draw);
             widget.color=ThemeAlpha(object,draw);style.portrait=widget;
@@ -1388,6 +1407,17 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
     style.ready=state==0?style.portrait.present && style.name.present && style.number.present && style.health.present:
         state==3?style.name.present && (style.portrait.present || deadDecoration):
                  style.name.present && style.number.present && style.health.present;
+    if (style.ready && resourceSignature) {
+        *resourceSignature=style;
+        // Clipping, fades, inventory visibility and a character's artwork can
+        // change without reloading resources. Only compare uncut core geometry,
+        // fonts and health materials belonging to the same source/state.
+        resourceSignature->width=slot.bounds.w;resourceSignature->height=slot.bounds.h;
+        resourceSignature->name.rect=resourceRects[1];resourceSignature->number.rect=resourceRects[2];
+        resourceSignature->health.rect=resourceRects[4];
+        resourceSignature->portrait={};resourceSignature->status={};resourceSignature->healthIcon={};
+        resourceSignature->items={};resourceSignature->images.clear();
+    }
     return style.ready;
 }
 bool ThemeSkinChanged(const GameHudCardStyle& before,const GameHudCardStyle& after) {
@@ -1441,6 +1471,31 @@ void MergeThemeItems(GameHudCardStyle& target,const GameHudCardStyle& source,con
         } else if (current.color.a<=0 && candidate.color.a>0) current.color=candidate.color;
     }
 }
+bool ThemeAppearanceDegraded(const GameHudCardStyle& before,const GameHudCardStyle& after) {
+    if (!ThemeCoreCompatible(before,after)) return false;
+    const auto faded=[](const ThemeWidget& a,const ThemeWidget& b) {
+        return a.present && b.present && a.color.a>0 && b.color.a<=0;
+    };
+    if (faded(before.portrait,after.portrait) || faded(before.name,after.name) ||
+        faded(before.number,after.number) || faded(before.healthIcon,after.healthIcon)) return true;
+    for (std::size_t n=0;n<before.items.size();++n) if (faded(before.items[n],after.items[n])) return true;
+    // Capturing during a fade or an unresolved optional bitmap is not evidence
+    // of a new skin. Give the previous compatible value a short recovery window.
+    for (const auto& image:before.images) {
+        if (image.fill.a<=0 && (image.texture.id<=0 || image.texture.tint.a<=0)) continue;
+        const auto found=std::find_if(after.images.begin(),after.images.end(),[&](const ThemeImage& next) {
+            const auto& a=image.widget.rect;const auto& b=next.widget.rect;
+            return image.widget.order==next.widget.order && image.widget.z==next.widget.z &&
+                a.x==b.x && a.y==b.y && a.w==b.w && a.h==b.h;
+        });
+        if (found==after.images.end() ||
+            (found->fill.a<=0 && (found->texture.id<=0 || found->texture.tint.a<=0))) return true;
+    }
+    return false;
+}
+bool SameThemePanel(const SafePanel& a,const SafePanel& b) {
+    return a.raw==b.raw && a.handle==b.handle;
+}
 const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<HudSlot>& slots,
                                     int width,int height,DWORD now,std::string& error) {
     ++g_runtimeCounters.themeReads;error.clear();auto& cache=g.gameTheme;
@@ -1463,52 +1518,85 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     }
     bool reset=cache.panelInterface!=g.panel || cache.vguiInterface!=g.vgui || cache.surfaceInterface!=g.surface ||
                cache.clientModule!=g.client || cache.vguiModule!=g.vguiModule ||
-               cache.root.raw!=root || cache.root.handle!=g.nativePanels.rootRef.handle || cache.width!=width || cache.height!=height ||
-               cache.sources.size()!=sources.size();
-    bool changed=false;
-    if (!reset) for (std::size_t n=0;n<sources.size();++n) {
-        const auto& old=cache.sources[n];const auto& next=sources[n];
-        if (!ResolveSafePanel(old.panel) || old.panel.raw!=next.panel.raw || old.panel.handle!=next.panel.handle || old.scheme!=next.scheme) {reset=true;break;}
-        if (old.playerIndex!=next.playerIndex || old.state!=next.state || old.items!=next.items) changed=true;
+               cache.root.raw!=root || cache.root.handle!=g.nativePanels.rootRef.handle || cache.width!=width || cache.height!=height;
+    bool changed=cache.sources.size()!=sources.size();
+    if (!reset && !sources.empty() && !cache.generationSources.empty() &&
+        std::none_of(sources.begin(),sources.end(),[&](const HudThemeSource& source) {
+            return std::any_of(cache.generationSources.begin(),cache.generationSources.end(),
+                               [&](const SafePanel& old){return SameThemePanel(old,source.panel);});
+        })) reset=true;
+    if (!reset) for (const auto& next:sources) {
+        // Old references are identity keys only. Never call IPanel on a retired
+        // source merely to decide whether copied theme values remain useful.
+        const auto old=std::find_if(cache.sources.begin(),cache.sources.end(),[&](const HudThemeSource& prior) {
+            return SameThemePanel(prior.panel,next.panel);
+        });
+        if ((!cache.schemes.empty() && std::find(cache.schemes.begin(),cache.schemes.end(),next.scheme)==cache.schemes.end()) ||
+            (old!=cache.sources.end() && old->scheme!=next.scheme)) {reset=true;break;}
+        if (old==cache.sources.end() || old->playerIndex!=next.playerIndex || old->state!=next.state || old->items!=next.items) changed=true;
     }
     if (reset) {
         cache={};cache.panelInterface=g.panel;cache.vguiInterface=g.vgui;cache.surfaceInterface=g.surface;
         cache.clientModule=g.client;cache.vguiModule=g.vguiModule;
         cache.root=g.nativePanels.rootRef;cache.width=width;cache.height=height;
     }
-    if (sources.empty()) {cache.theme={};cache.sources.clear();error="No visible native card to sample";return cache.theme;}
-    if (!reset && !changed && static_cast<LONG>(now-cache.nextCapture)<0) return cache.theme;
+    if (sources.empty()) {
+        if (!cache.noSources) {cache.noSources=true;cache.noSourcesSince=now;}
+        cache.sources.clear();
+        if (now-cache.noSourcesSince>=2000) cache.theme={};
+        cache.theme.status=cache.theme.available?"native sources unavailable; retaining theme for up to 2000ms":"No visible native card to sample";
+        error=cache.theme.status;return cache.theme;
+    }
+    cache.noSources=false;
+    if (!reset && static_cast<LONG>(now-cache.nextCapture)<0 && (!changed || cache.retryPending)) return cache.theme;
     ++g_runtimeCounters.themeCaptures;cache.nextCapture=now+500;cache.sources=sources;
+    cache.generationSources.clear();
+    for (const auto& source:sources) cache.generationSources.push_back(source.panel);
+    if (cache.schemes.empty()) for (const auto& source:sources)
+        if (std::find(cache.schemes.begin(),cache.schemes.end(),source.scheme)==cache.schemes.end()) cache.schemes.push_back(source.scheme);
+    cache.observations.erase(std::remove_if(cache.observations.begin(),cache.observations.end(),[&](const HudThemeObservation& observed) {
+        return std::none_of(sources.begin(),sources.end(),[&](const HudThemeSource& source){return SameThemePanel(source.panel,observed.panel);});
+    }),cache.observations.end());
     ThemeCapturePass pass;ThemePalette(pass);
     GameHudTheme sampled;
     std::array<bool,4> attempted{},captured{};
     std::array<std::array<unsigned,3>,4> itemPriorities{};
     std::array<std::array<bool,3>,4> anyHeld{};
+    bool resourceChanged=false;
     for (std::size_t n=0;n<sources.size();++n) {
         const auto& source=sources[n];
         const auto player=std::find_if(snapshot.players.begin(),snapshot.players.end(),[&](const Player& p){return p.index==source.playerIndex;});
         const auto slot=std::find_if(slots.begin(),slots.end(),[&](const HudSlot& s){return s.panel==source.panel.raw && s.playerIndex==source.playerIndex;});
         if (player==snapshot.players.end() || slot==slots.end()) continue;
         attempted[source.state]=true;
-        GameHudCardStyle style;GameHudTheme icons;
-        if (!CaptureCardStyle(source.panel,*slot,*player,pass,icons,style)) continue;
+        GameHudCardStyle style,signature;GameHudTheme icons;
+        if (!CaptureCardStyle(source.panel,*slot,*player,pass,icons,style,&signature)) continue;
+        const auto observed=std::find_if(cache.observations.begin(),cache.observations.end(),[&](const HudThemeObservation& value) {
+            return SameThemePanel(value.panel,source.panel) && value.state==source.state;
+        });
+        if (observed==cache.observations.end()) cache.observations.push_back({source.panel,source.state,std::move(signature),{},0});
+        else if (ThemeSkinChanged(observed->accepted,signature)) {
+            if (observed->confirmations && !ThemeSkinChanged(observed->pending,signature)) {
+                if (now-observed->pendingSince>=100) ++observed->confirmations;
+            } else {observed->pending=signature;observed->confirmations=1;observed->pendingSince=now;}
+            if (observed->confirmations>=2) {
+                resourceChanged=true;observed->accepted=std::move(signature);observed->pending={};observed->confirmations=0;
+            }
+        } else {observed->pending={};observed->confirmations=0;}
         for (const auto& icon:icons.icons) StoreThemeIcon(sampled,icon);
         if (!captured[source.state]) {sampled.states[source.state]=style;captured[source.state]=true;}
         MergeThemeItems(sampled.states[source.state],style,*player,itemPriorities[source.state],anyHeld[source.state]);
-        if (source.state==0 && style.number.present) {
+        if (source.state==0 && style.number.present && style.number.color.a>0) {
             const float temporary=std::isfinite(player->temporaryHealth)?std::clamp(player->temporaryHealth,0.0f,static_cast<float>((std::max)(0,player->health))):0;
             const float ratio=(player->health-temporary)/(std::max)(1,player->maxHealth);
             const std::size_t band=player->blackWhite?3u:ratio<0.25f?0u:ratio<pass.medium?1u:2u;
             sampled.numberPalette[band]=style.number.color;sampled.numberPaletteObserved[band]=true;
         }
     }
-    // HScheme can keep the same numeric handle when resources are reapplied.
-    // Structural/font/material changes in an observed state invalidate the
-    // older unobserved state templates and item atlas metadata as well.
-    bool skinChanged=false;
-    for (std::size_t n=0;n<captured.size();++n)
-        if (captured[n] && ThemeSkinChanged(cache.theme.states[n],sampled.states[n])) skinChanged=true;
-    if (skinChanged) cache.theme={};
+    // Same-scheme hot reloads require two matching observations from the same
+    // source and state. A clipped card, a revived teammate or a new sampling
+    // representative cannot invalidate another survivor's down/dead template.
+    if (resourceChanged) {cache.theme={};cache.failed={};cache.failureSince={};}
     for (std::size_t n=0;n<captured.size();++n) if (captured[n] && ThemeCoreCompatible(cache.theme.states[n],sampled.states[n])) {
         for (int kind=0;kind<3;++kind) {
             const auto& previous=cache.theme.states[n].items[kind];
@@ -1521,9 +1609,30 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
             }
         }
     }
-    for (std::size_t n=0;n<captured.size();++n) if (attempted[n])
-        cache.theme.states[n]=captured[n]?std::move(sampled.states[n]):GameHudCardStyle{};
-    for (const auto& icon:sampled.icons) StoreThemeIcon(cache.theme,icon);
+    std::array<bool,4> retained{},appearance{};
+    bool retry=false;
+    for (std::size_t n=0;n<captured.size();++n) if (attempted[n]) {
+        appearance[n]=captured[n] && ThemeAppearanceDegraded(cache.theme.states[n],sampled.states[n]);
+        if (!captured[n] || appearance[n]) {
+            if (!cache.failed[n]) {cache.failed[n]=true;cache.failureSince[n]=now;}
+            if (now-cache.failureSince[n]<2000) {
+                retained[n]=cache.theme.states[n].ready;retry=true;
+                continue;
+            }
+            if (!captured[n]) {cache.theme.states[n]={};continue;}
+        }
+        cache.failed[n]=false;
+        cache.theme.states[n]=std::move(sampled.states[n]);
+    }
+    cache.retryPending=retry;
+    if (retry) cache.nextCapture=now+100;
+    for (const auto& icon:sampled.icons) {
+        const auto previous=std::find_if(cache.theme.icons.begin(),cache.theme.icons.end(),[&](const ThemeIcon& value) {
+            return value.kind==icon.kind && value.item==icon.item;
+        });
+        if (retry && icon.color.a<=0 && previous!=cache.theme.icons.end() && previous->color.a>0) continue;
+        StoreThemeIcon(cache.theme,icon);
+    }
     for (std::size_t n=0;n<sampled.numberPaletteObserved.size();++n) if (sampled.numberPaletteObserved[n]) {
         cache.theme.numberPalette[n]=sampled.numberPalette[n];cache.theme.numberPaletteObserved[n]=true;
     }
@@ -1533,7 +1642,14 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
         style.bar.palette=pass.palette;style.bar.mediumThreshold=pass.medium;
     }
     cache.theme.available=std::any_of(cache.theme.states.begin(),cache.theme.states.end(),[](const GameHudCardStyle& style){return style.ready;});
-    cache.theme.status=cache.theme.available?"sampled current native HUD":"waiting for supported native controls";
+    std::string readyBits,retainedBits,failedBits,appearanceBits;
+    for (std::size_t n=0;n<captured.size();++n) {
+        readyBits+=cache.theme.states[n].ready?'1':'0';retainedBits+=retained[n]?'1':'0';
+        failedBits+=cache.failed[n]?'1':'0';appearanceBits+=appearance[n]?'1':'0';
+    }
+    cache.theme.status=std::string(cache.theme.available?"sampled current native HUD":"waiting for supported native controls")+
+        " ready="+readyBits+" retained="+retainedBits+" failed="+failedBits+" appearance="+appearanceBits+
+        " retry="+(retry?"100ms":"500ms");
     if (!cache.theme.available) error=cache.theme.status;
     return cache.theme;
 }

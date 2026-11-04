@@ -4,11 +4,15 @@
 
 **[Download now — 0.1.16 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.16-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.16-public-test.zip)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.16**.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. **Latest source: 0.1.18. Published downloadable build: 0.1.16.**
 
-**0.1.16 corrects L4D1 survivor portraits, downed artwork, and repeated-character detection.** The user confirmed normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance.
+[Patch notes](CHANGELOG.md) · [한국어 변경 사항](CHANGELOG.ko.md)
 
-Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The in-game menu and DLL use the name **NekoExtraHUD / Extra Survivor HUD**.
+The 0.1.18 source adds an optional **L4D1 teammate HUD replacement**, enabled by default, and Korean or English menu labels that follow the game's language. It also includes the 0.1.17 changes intended to reduce intermittent item/downed-display loss and HUD-related frame overhead. **0.1.18 has not yet been confirmed in a live server test.**
+
+The download linked above is still **0.1.16**. Its seven English menu items do not include the new L4D1 replacement option or automatic menu translation described below.
+
+Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The DLL uses the name **NekoExtraHUD**; the menu is **Extra Survivor HUD**, or **추가 생존자 HUD** in the 0.1.18 Korean menu.
 
 > **Account and server restriction notice:** This DLL modifies the game at runtime. The author cannot guarantee that using it will not result in game/server restrictions or account bans. To the extent permitted by law, the author accepts no responsibility for such penalties. Use it only if you accept these risks of restrictions or bans.
 
@@ -34,10 +38,12 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
    ```
 
 3. If the package includes an example `extra_hud.ini`, new users can put it at `<Left 4 Dead 2>/left4dead2/neko/extra_hud.ini`. Keep your existing file when updating so your settings are preserved.
-4. Start the game and load a map. Enter `l4n_menu` in the console, then select **L4N Plugins → Extra Survivor HUD** and set **Extension: ON**. To preview it in a normal four-survivor game, also enable **Single-player test**.
+4. Start the game and load a map. Enter `l4n_menu` in the console, then select **L4N Plugins → Extra Survivor HUD** and set **Extension: ON**. With the published 0.1.16 build, enable **Single-player test** to preview it in a normal four-survivor game.
 
 <details>
 <summary>Show the menu access guide with screenshots</summary>
+
+These screenshots show an earlier version. The new eighth option and the translated 0.1.18 labels are not shown here.
 
 **1. Optional: choose a key for the Neko menu**
 
@@ -75,31 +81,36 @@ Each extra card shows the teammate's name, portrait, health, and status. The hea
 
 With **nine or more survivors**, or **repeated survivor characters**, the plugin can show the complete teammate HUD in place of the usual teammate cards. Matching player nicknames alone do not activate this behavior.
 
-In a standard four-survivor game, seeing **no extra cards is normal**. Use **Single-player test** to preview the extra HUD with your three existing teammates.
+In the **0.1.18 source**, **Replace L4D1 team HUD** is ON by default. When the game is using L4D1 survivors, it shows every teammate through the extra HUD in place of the usual teammate cards, including in a four-survivor game. Your own HUD remains visible. Turning this option OFF releases this L4D1-specific replacement; the separate nine-survivor and repeated-character rules still apply.
+
+In a standard four-survivor game that keeps its usual teammate HUD, seeing **no extra cards is normal**. Use **Single-player test** to preview the extra HUD with your three existing teammates. When the complete teammate HUD is already being replaced, those teammates are already visible and this preview is unnecessary.
 
 ## Options in the game
 
-After a map has loaded, open the console, enter `l4n_menu`, and select **L4N Plugins → Extra Survivor HUD**. Menu toggles are saved automatically.
+After a map has loaded, open the console, enter `l4n_menu`, and select **L4N Plugins → Extra Survivor HUD** (**추가 생존자 HUD** in Korean). Menu toggles are saved automatically.
 
-| Option | Default | What it does |
+This table describes the **0.1.18 source**. Its menu uses Korean when the game's language is Korean, and English otherwise. The published **0.1.16** download has the first seven options in English.
+
+| English / Korean menu label | Default | What it does |
 | --- | --- | --- |
-| **Extension: ON / OFF** | ON | Shows or hides NekoExtraHUD. The usual teammate HUD follows your Neko settings. |
-| **8th+ teammate cards: ON / OFF** | OFF | ON allows teammate cards beyond the first seven teammates, excluding you, when there is room. OFF normally limits the combined teammate HUD to seven teammates. This limit does not apply while the complete teammate HUD is being replaced. |
-| **Theme: Current design / In-game HUD** | Current design | **Current design** uses the plugin's simple card appearance. **In-game HUD** follows the HUD appearance currently used in your game, including available portraits, health bars, item icons, and downed/death artwork. Some custom HUD elements may look different. |
-| **Single-player test: ON / OFF** | OFF | In a standard four-survivor game with three visible teammate cards, shows an extra copy of those three teammates for testing. It does not add players or bots. Turn it OFF for normal play. |
-| **Diagnostic logging: ON / OFF** | ON | Enables or disables detailed diagnostic logging. OFF does not remove basic startup or error messages. It does not change the HUD's appearance. |
-| **Reload extra_hud.ini** | Action | Applies settings you have saved in `extra_hud.ini`. |
-| **Write diagnostic snapshot** | Action | Writes a diagnostic report to `extra_hud.log`. It does not take a screenshot or change the display. |
+| **Extension / 추가 HUD** | ON / 켜짐 | Shows or hides NekoExtraHUD. The usual teammate HUD follows your Neko settings. |
+| **8th+ teammate cards / 8번째 이후 팀원 HUD** | OFF / 꺼짐 | ON allows teammate cards beyond the first seven teammates, excluding you, when there is room. OFF normally limits the combined teammate HUD to seven teammates. This limit does not apply while the complete teammate HUD is being replaced. |
+| **Theme / 테마** | Current design / 현재 디자인 | **Current design / 현재 디자인** uses the plugin's simple card appearance. **In-game HUD / 게임 내 HUD** follows the HUD appearance currently used in your game, including available portraits, health bars, item icons, and downed/death artwork. Some custom HUD elements may look different. |
+| **Single-player test / 싱글 테스트** | OFF / 꺼짐 | In a standard four-survivor game with three visible teammate cards, shows an extra copy of those three teammates for testing. It does not add players or bots. Full replacement already shows the actual teammates. Turn this preview OFF for normal play. |
+| **Diagnostic logging / 진단 로그** | ON / 켜짐 | Enables or disables detailed diagnostic logging. OFF does not remove basic startup or error messages. It does not change the HUD's appearance. |
+| **Reload extra_hud.ini / extra_hud.ini 다시 불러오기** | Action | Applies settings you have saved in `extra_hud.ini`. |
+| **Write diagnostic snapshot / 진단 정보 기록** | Action | Writes a diagnostic report to `extra_hud.log`. It does not take a screenshot or change the display. |
+| **Replace L4D1 team HUD / L4D1 팀원 HUD 대체** | ON / 켜짐 | **New in the 0.1.18 source.** Replaces all teammate cards when the game is using L4D1 survivors, while keeping your own HUD. This also works in a four-survivor game. OFF disables this rule; nine-survivor or repeated-character replacement can still apply. |
 
 ### Portraits and item icons
 
-With **In-game HUD**, available item icons include healing items, pills or adrenaline, and throwables. Their appearance depends on your active HUD and the teammate's inventory.
+With **In-game HUD**, available item icons include healing items, pills or adrenaline, and throwables. Their appearance depends on your active HUD and the teammate's inventory. A simpler item symbol or state appearance can still be used when the matching artwork is unavailable.
 
 If a teammate is using a Neko model with suitable portrait artwork, the extra card can use that artwork automatically. This follows your existing Neko model selections; there is no separate portrait switch. If suitable artwork is unavailable, the survivor portrait is used.
 
 ### Display examples
 
-These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
+These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. They show earlier versions, not a 0.1.18 server test. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
 
 **Custom HUD used in the L4D1 examples**
 
@@ -154,7 +165,9 @@ The extra HUD starts at the lower left even if your custom teammate HUD is locat
 ## Public test notes
 
 - Check both normal play and downed, hanging, and dead states with your HUD.
-- The user confirmed normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance. Other theme and state combinations remain part of public testing.
+- The user confirmed 0.1.16 normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance. **0.1.18 still needs a live server test**; appearance and performance can vary with your setup.
+- The latest source and the published ZIP are different versions. See the [patch notes](CHANGELOG.md) for the 0.1.17 and 0.1.18 changes.
 - If something looks wrong, describe your HUD/theme, survivor count, and the state in which it happened. Check a log before sharing it publicly.
 
 Redistribution terms: [Korean license](LICENSE) · [English translation](LICENSE.en.txt).
+

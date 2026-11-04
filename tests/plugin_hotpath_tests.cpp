@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 
 namespace {
 neh::Snapshot Roster(unsigned count=4) {
@@ -66,8 +67,8 @@ void EnableReplacementFixture(unsigned count=9) {
 }
 
 // These replace every engine-facing Runtime/Renderer entry point. No game
-// module, SDK lifecycle callback, UI hook installation, menu, or file setting
-// loader is invoked by this test executable.
+// module, SDK lifecycle callback or UI hook installation is invoked by this
+// test executable. Menu/settings tests use a unique temporary INI only.
 namespace neh {
 void AbortMemoryQueries(){}
 bool Runtime::Initialize(std::string&){++g_mock.calls;return g_mock.ready;}
@@ -129,6 +130,26 @@ void CheckAutomaticReplacementHook() {
           "a healthy unique roster preserves native painting and renders only its normal additions");
     Check(g_mock.events==std::vector<std::string>{"native","snapshot","paint_state","layout","original","push","draw","pop"},
           "normal root preparation runs once before original painting and rendering uses a balanced context afterward");
+
+    EnableReplacementFixture(4);g_mock.snapshot.survivorSet=1;Paint(g_mock.root);
+    Check(g_originalCalls==0&&g_mock.draws==1&&g_mock.renderedReplacement,
+          "the default L4D1 option replaces all teammate cards for a verified active L4D1 survivor set");
+    auto l4d1Settings=CurrentSettings();l4d1Settings.replaceL4d1Team=false;PublishSettings(l4d1Settings);Paint(g_mock.root);
+    Check(g_originalCalls==1&&!g_mock.renderedReplacement,
+          "turning the L4D1 option off restores a healthy unique native display on the next paint without a sticky delay");
+    l4d1Settings.replaceL4d1Team=true;PublishSettings(l4d1Settings);Paint(g_mock.root);
+    Check(g_originalCalls==1&&g_mock.renderedReplacement,
+          "turning the L4D1 option on takes effect immediately for the current active survivor set");
+    g_mock.snapshot.survivorSet=2;Paint(g_mock.root);
+    Check(g_originalCalls==2&&!g_mock.renderedReplacement,
+          "changing to the L4D2 survivor set immediately releases the L4D1-only replacement override");
+    g_mock.snapshot.survivorSet=0;Paint(g_mock.root);
+    Check(g_originalCalls==3&&!g_mock.renderedReplacement,
+          "an unknown survivor set never guesses that the L4D1-only replacement should be active");
+    g_mock.snapshot.survivorSet=1;l4d1Settings.replaceL4d1Team=false;PublishSettings(l4d1Settings);
+    g_mock.snapshot.players[2].character=g_mock.snapshot.players[0].character;Paint(g_mock.root);
+    Check(g_originalCalls==3&&g_mock.renderedReplacement,
+          "turning the L4D1 option off preserves the independent repeated-survivor replacement policy");
 
     EnableReplacementFixture(8);
     for(auto& player:g_mock.snapshot.players)player.name="Same nickname";
@@ -283,6 +304,207 @@ void CheckAutomaticReplacementHook() {
     Check(g_originalCalls==2&&g_mock.calls==changedCalls&&!g_policyUsed,
           "the following OFF paint also clears mid-preparation policy state with zero engine calls");
 }
+
+std::string ReadTestLog() {
+    std::ifstream file(g_log.c_str(),std::ios::binary);
+    return {std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
+}
+void CheckProfileWindowTiming() {
+    ResetFixture();
+    BeginPerfWindow(true,1000,42);
+    g_perf.hooks=7;
+    g_perf.stages[static_cast<unsigned>(PerfStage::Total)].Add(10);
+    neh::g_runtimeCounters.virtualQueries=23;
+    const auto before=ReadTestLog();
+    MaybeLogPerf(5999);
+    Check(g_perf.started==1000&&g_perf.hooks==7&&neh::g_runtimeCounters.virtualQueries==23&&
+          ReadTestLog()==before,
+          "profiling retains its complete counters and writes nothing before the five-second deadline");
+    MaybeLogPerf(6000);
+    const auto first=ReadTestLog();
+    const auto firstLine=first.substr(before.size());
+    Check(g_perf.active&&g_perf.started==6000&&g_perf.revision==42&&g_perf.hooks==0&&
+          neh::g_runtimeCounters.virtualQueries==0,
+          "the exact five-second deadline logs and starts a fresh window with the current revision");
+    Check(firstLine.find("profile: window_ms=5000 hooks=7")!=std::string::npos&&
+          firstLine.find("total_samples=1")!=std::string::npos&&firstLine.find(" vq=23 ")!=std::string::npos,
+          "the emitted interval contains the counters collected before its reset");
+
+    // Model an inner paint that just emitted at 6000, followed by its outer
+    // paint returning with a timestamp captured 16 milliseconds earlier.
+    g_perf.hooks=3;
+    neh::g_runtimeCounters.virtualQueries=11;
+    MaybeLogPerf(5984);
+    Check(g_perf.started==6000&&g_perf.hooks==3&&neh::g_runtimeCounters.virtualQueries==11&&
+          ReadTestLog()==first,
+          "a stale outer-paint timestamp after re-entry cannot log unsigned underflow or consume new-window counters");
+    MaybeLogPerf(6000);
+    MaybeLogPerf(10999);
+    Check(g_perf.started==6000&&g_perf.hooks==3&&neh::g_runtimeCounters.virtualQueries==11&&
+          ReadTestLog()==first,
+          "same-tick callbacks and the next pre-deadline callback preserve the new five-second window");
+    MaybeLogPerf(11000);
+    const auto second=ReadTestLog();
+    const auto secondLine=second.substr(first.size());
+    Check(g_perf.started==11000&&secondLine.find("profile: window_ms=5000 hooks=3")!=std::string::npos&&
+          secondLine.find(" vq=11 ")!=std::string::npos,
+          "the next fresh timestamp emits one normal interval after a stale re-entrant callback was ignored");
+
+    BeginPerfWindow(true,0xfffffff0UL,43);
+    g_perf.hooks=5;
+    neh::g_runtimeCounters.virtualQueries=17;
+    MaybeLogPerf(0x1377UL);
+    Check(g_perf.started==0xfffffff0UL&&g_perf.hooks==5&&neh::g_runtimeCounters.virtualQueries==17&&
+          ReadTestLog()==second,
+          "the interval remains pending at 4999 milliseconds across DWORD clock rollover");
+    MaybeLogPerf(0x1378UL);
+    const auto wrapped=ReadTestLog();
+    const auto wrappedLine=wrapped.substr(second.size());
+    Check(g_perf.started==0x1378UL&&g_perf.revision==43&&g_perf.hooks==0&&
+          wrappedLine.find("profile: window_ms=5000 hooks=5")!=std::string::npos&&
+          wrappedLine.find(" vq=17 ")!=std::string::npos,
+          "an actual DWORD rollover still emits exactly at five seconds and resets to the fresh wrapped timestamp");
+    g_perf.frequency=0;
+    neh::g_runtimeCounters.virtualQueries=19;
+    MaybeLogPerf(0x2700UL);
+    Check(g_perf.started==0x1378UL&&neh::g_runtimeCounters.virtualQueries==19&&ReadTestLog()==wrapped,
+          "unavailable performance frequency cannot consume runtime counters or create a misleading log interval");
+    g_perf.active=false;
+    g_perf.frequency=1;
+    MaybeLogPerf(0x2700UL);
+    Check(neh::g_runtimeCounters.virtualQueries==19&&ReadTestLog()==wrapped,
+          "inactive profiling performs no log write or runtime-counter reset even after a deadline");
+}
+void CheckLocalizedMenusAndSettings() {
+    using neh::MenuText;
+    Check(neh::IsKoreanLanguage("korean")&&neh::IsKoreanLanguage("KOREAN")&&
+          neh::IsKoreanLanguage("koreana")&&neh::IsKoreanLanguage("KoReAnA"),
+          "Steam Korean language names are matched exactly without ASCII case sensitivity");
+    for(const char* name:{static_cast<const char*>(nullptr),"","english","japanese","koreanish","korean_extra"," korean","korean "})
+        Check(!neh::IsKoreanLanguage(name),"null, empty and other game languages retain the English menu");
+    ResetFixture();neh::Settings settings;settings.enabled=true;settings.theme=neh::HudTheme::GameHud;
+    settings.singlePlayerTest=true;settings.replaceL4d1Team=true;PublishSettings(settings);
+    const std::string english=BuildMenu(false),korean=BuildMenu(true);
+    Check(english.find("\"Extra Survivor HUD\"")!=std::string::npos&&
+          english.find("Replace L4D1 team HUD: ON")!=std::string::npos&&
+          english.find("Theme: In-game HUD")!=std::string::npos,
+          "the explicit English menu includes the enabled L4D1 replacement option and selected theme");
+    Check(korean.find(u8"\"추가 생존자 HUD\"")!=std::string::npos&&
+          korean.find(u8"L4D1 팀원 HUD 전체 대체: 켜짐")!=std::string::npos&&
+          korean.find(u8"테마: 게임 내 HUD")!=std::string::npos&&
+          korean.find(u8"싱글 테스트: 켜짐")!=std::string::npos&&
+          korean.find(u8"extra_hud.ini 다시 불러오기")!=std::string::npos&&
+          korean.find(u8"진단 정보 기록")!=std::string::npos,
+          "the explicit Korean menu contains complete UTF-8 labels, states, theme names and actions");
+    settings.enabled=false;settings.overflow=true;settings.debug=true;settings.theme=neh::HudTheme::Current;
+    settings.singlePlayerTest=false;settings.replaceL4d1Team=false;PublishSettings(settings);
+    const std::string changed=BuildMenu(true);
+    Check(changed.find(u8"추가 HUD: 꺼짐")!=std::string::npos&&
+          changed.find(u8"8번째 이후 팀원 HUD: 켜짐")!=std::string::npos&&
+          changed.find(u8"진단 로그: 켜짐")!=std::string::npos&&
+          changed.find(u8"테마: 현재 디자인")!=std::string::npos&&
+          changed.find(u8"싱글 테스트: 꺼짐")!=std::string::npos&&
+          changed.find(u8"L4D1 팀원 HUD 전체 대체: 꺼짐")!=std::string::npos,
+          "every translated option reflects its own current setting without changing callback identities");
+    unsigned entries=0;std::size_t position=0;
+    while((position=korean.find("\"callback\"",position))!=std::string::npos) {++entries;++position;}
+    Check(entries==8,"the localized submenu exposes exactly the eight available actions");
+    Check(static_cast<std::uintptr_t>(Action::Enabled)==1&&static_cast<std::uintptr_t>(Action::Overflow)==2&&
+          static_cast<std::uintptr_t>(Action::Debug)==3&&static_cast<std::uintptr_t>(Action::Reload)==4&&
+          static_cast<std::uintptr_t>(Action::Diagnostics)==5&&static_cast<std::uintptr_t>(Action::Theme)==6&&
+          static_cast<std::uintptr_t>(Action::SinglePlayerTest)==7&&static_cast<std::uintptr_t>(Action::ReplaceL4d1Team)==8,
+          "adding localization and the new option preserves all seven existing callback user-data numbers");
+    if(!GetModuleHandleW(L"steam_api.dll")) {
+        ExtraHudPlugin plugin;
+        Check(!UseKoreanMenu()&&std::strcmp(plugin.RequestHudMenu(true),"Extra Survivor HUD")==0&&
+              std::strstr(plugin.RequestHudMenu(false),"Replace L4D1 team HUD: OFF")!=nullptr,
+              "a missing already-loaded Steam API safely falls back to a complete English title and submenu");
+    }
+    for(unsigned n=0;n<static_cast<unsigned>(MenuText::Count);++n)
+        Check(*neh::MenuLabel(static_cast<MenuText>(n),false)&&*neh::MenuLabel(static_cast<MenuText>(n),true),
+              "each menu translation key supplies a nonempty English and Korean label");
+    Check(!*neh::MenuLabel(MenuText::Count,true),"an invalid translation key safely produces an empty string");
+
+    wchar_t directory[MAX_PATH]{},temporary[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH,directory)>0&&GetTempFileNameW(directory,L"neh",0,temporary)!=0,
+          "settings regressions use a unique temporary file outside the game installation");
+    const auto previousIni=g_ini;const bool pathsReady=g_pathsReady.load();g_ini=temporary;g_pathsReady.store(true);
+    LoadSettings();
+    Check(CurrentSettings().replaceL4d1Team&&GetPrivateProfileIntW(L"hud",L"replace_l4d1_team",0,temporary)==1,
+          "an existing INI without the new key defaults L4D1 replacement to ON and persists that default");
+    WritePrivateProfileStringW(L"hud",L"replace_l4d1_team",L"0",temporary);
+    WritePrivateProfileStringW(L"hud",L"scale_percent",L"100",temporary);
+    WritePrivateProfileStringW(L"hud",L"theme",L"1",temporary);
+    WritePrivateProfileStringW(L"hud",L"single_player_test",L"1",temporary);
+    LoadSettings();
+    Check(!CurrentSettings().replaceL4d1Team&&CurrentSettings().scale==1.0f&&
+          CurrentSettings().theme==neh::HudTheme::GameHud&&CurrentSettings().singlePlayerTest,
+          "loading the new opt-out preserves the existing scale, theme and single-player settings");
+    const auto revision=g_settingsRevision.load();
+    const auto menu=MenuAction(reinterpret_cast<void*>(static_cast<std::uintptr_t>(Action::ReplaceL4d1Team)));
+    Check(menu&&CurrentSettings().replaceL4d1Team&&g_settingsRevision.load()==revision+1&&
+          GetPrivateProfileIntW(L"hud",L"replace_l4d1_team",0,temporary)==1&&
+          GetPrivateProfileIntW(L"hud",L"scale_percent",0,temporary)==100&&
+          GetPrivateProfileIntW(L"hud",L"theme",0,temporary)==1&&
+          GetPrivateProfileIntW(L"hud",L"single_player_test",0,temporary)==1,
+          "the new menu callback publishes its setting immediately, saves it, and preserves unrelated settings");
+    g_ini=previousIni;g_pathsReady.store(pathsReady);
+    Check(DeleteFileW(temporary)!=FALSE,"the temporary INI is removed after settings verification");
+    ResetFixture();
+}
+void CheckGameLanguageProviders() {
+    unsigned steamCalls=0;
+    auto steamKorean=[&](char (&value)[33]) {++steamCalls;std::memcpy(value,"koreana",8);return true;};
+    Check(!neh::ResolveKoreanMenu([](char (&value)[33]) {std::memcpy(value,"english",8);return true;},steamKorean)&&steamCalls==0,
+          "a successfully read English client language overrides Korean Steam game language without querying the fallback");
+    Check(neh::ResolveKoreanMenu([](char (&value)[33]) {std::memcpy(value,"KOREAN",7);return true;},steamKorean)&&steamCalls==0,
+          "a successfully read Korean client language is used directly without querying Steam");
+    Check(neh::ResolveKoreanMenu([](char (&)[33]) {return false;},steamKorean)&&steamCalls==1,
+          "an unavailable client language uses the public Steam game-language fallback");
+    Check(neh::ResolveKoreanMenu([](char (&value)[33]) {value[0]='\0';return true;},steamKorean)&&steamCalls==2,
+          "an empty client language is unavailable and can use the Korean Steam fallback");
+    Check(!neh::ResolveKoreanMenu([](char (&)[33]) {return false;},[](char (&)[33]) {return false;}),
+          "two unavailable game-language providers safely keep English labels");
+    std::array<unsigned char,64> variable{},parent{};void* root=parent.data();
+    std::memcpy(variable.data()+0x1c,&root,sizeof(root));std::memcpy(parent.data()+0x1c,&root,sizeof(root));
+    const char* language="english";std::memcpy(parent.data()+0x24,&language,sizeof(language));char copied[33]{};
+    Check(ReadConVarMenuLanguage(variable.data(),copied)&&std::strcmp(copied,"english")==0,
+          "the verified ConVar parent and string layout copies an English value as an available language");
+    language="koreana";std::memcpy(parent.data()+0x24,&language,sizeof(language));
+    Check(ReadConVarMenuLanguage(variable.data(),copied)&&neh::IsKoreanLanguage(copied),
+          "the verified ConVar layout copies the current Korean value instead of reusing a previous read");
+    Check(!ReadConVarMenuLanguage(nullptr,copied)&&!copied[0],"a missing ConVar cannot expose a cached language value");
+    void* absent=nullptr;std::memcpy(variable.data()+0x1c,&absent,sizeof(absent));
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"a null ConVar parent is rejected before reading its string");
+    std::memcpy(variable.data()+0x1c,&root,sizeof(root));std::memcpy(parent.data()+0x1c,&absent,sizeof(absent));
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"a non-root ConVar parent fails the verified self-parent contract");
+    std::memcpy(parent.data()+0x1c,&root,sizeof(root));char longName[40];std::memset(longName,'k',sizeof(longName));
+    language=longName;std::memcpy(parent.data()+0x24,&language,sizeof(language));
+    Check(!ReadConVarMenuLanguage(variable.data(),copied)&&!copied[0],
+          "a language without a terminator inside thirty-two bytes is rejected and clears the output");
+    language="";std::memcpy(parent.data()+0x24,&language,sizeof(language));
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"an empty ConVar language is unavailable rather than an English override");
+    auto* memory=VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
+    Check(memory!=nullptr,"a dedicated language-string page is available for guarded-read regressions");
+    std::memcpy(memory,"korean",7);language=static_cast<const char*>(memory);
+    std::memcpy(parent.data()+0x24,&language,sizeof(language));DWORD old=0;
+    Check(VirtualProtect(memory,4096,PAGE_READWRITE|PAGE_GUARD,&old)!=FALSE,
+          "the dedicated language string can be protected with a guard page");
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"a guarded language string fails safely before dereferencing it");
+    MEMORY_BASIC_INFORMATION page{};VirtualQuery(memory,&page,sizeof(page));
+    Check((page.Protect&PAGE_GUARD)!=0,"language inspection leaves a rejected guard page unconsumed");
+    Check(VirtualProtect(memory,4096,PAGE_NOACCESS,&old)!=FALSE,
+          "the dedicated language string can become inaccessible between menu requests");
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"a no-access language string never reuses the previous readable value");
+    void* inaccessible=memory;std::memcpy(variable.data()+0x1c,&inaccessible,sizeof(inaccessible));
+    Check(!ReadConVarMenuLanguage(variable.data(),copied),"a no-access ConVar parent is rejected before reading its fields");
+    Check(VirtualProtect(memory,4096,PAGE_READWRITE,&old)!=FALSE,
+          "the language-string page can recover after a failed read");
+    std::memcpy(variable.data()+0x1c,&root,sizeof(root));
+    Check(ReadConVarMenuLanguage(variable.data(),copied)&&neh::IsKoreanLanguage(copied),
+          "the next menu language request reads the restored string without retaining a failed result");
+    Check(VirtualFree(memory,0,MEM_RELEASE)!=FALSE,"the language regression releases its dedicated page");
+}
 }
 
 int main() {
@@ -412,6 +634,9 @@ int main() {
           "single-player testing never bypasses the extension OFF fast gate");
 
     CheckAutomaticReplacementHook();
+    CheckProfileWindowTiming();
+    CheckLocalizedMenusAndSettings();
+    CheckGameLanguageProviders();
     g_original=nullptr;
     std::cout<<"Plugin hot path: "<<g_checks<<" checks passed\n";
     return 0;

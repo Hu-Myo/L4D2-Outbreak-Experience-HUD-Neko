@@ -27,15 +27,54 @@ R Call(void* surface, int index, Args... args) {
     using Fn=R(__thiscall*)(void*,Args...);
     return reinterpret_cast<Fn>((*reinterpret_cast<void***>(surface))[index])(surface,args...);
 }
+struct ModelMemoryRegion {
+    std::uintptr_t begin=0,end=0;
+    DWORD state=0,protection=0;
+};
+struct ModelMemoryQueries {
+    // Only page metadata is shared within this draw. Object contents, vtables
+    // and methods are still read again under SEH on every use.
+    std::array<ModelMemoryRegion,32> regions{};
+    std::size_t count=0,replace=0;
+    bool active=false;
+    void Begin() {count=replace=0;active=true;}
+    void End() {count=replace=0;active=false;}
+    void Invalidate() {count=replace=0;}
+    bool Query(std::uintptr_t address,ModelMemoryRegion& result) {
+        if(active) for(std::size_t n=0;n<count;++n) {
+            const auto& cached=regions[n];
+            if(address>=cached.begin && address<cached.end) {result=cached;return true;}
+        }
+        MEMORY_BASIC_INFORMATION page{};++g_runtimeCounters.virtualQueries;
+        if(!VirtualQuery(reinterpret_cast<void*>(address),&page,sizeof(page)))return false;
+        const auto begin=reinterpret_cast<std::uintptr_t>(page.BaseAddress);
+        const std::uintptr_t end=begin+page.RegionSize;
+        if(end<=begin || address<begin || address>=end)return false;
+        result={begin,end,page.State,page.Protect};
+        // Failed/guarded regions can become usable during an asset callback;
+        // never extend a negative permission observation even within a draw.
+        if(active && page.State==MEM_COMMIT && !(page.Protect&PAGE_GUARD) &&
+           (page.Protect&0xff)!=PAGE_NOACCESS) {
+            if(count<regions.size())regions[count++]=result;
+            else {regions[replace]=result;replace=(replace+1)%regions.size();}
+        }
+        return true;
+    }
+};
+thread_local ModelMemoryQueries g_modelMemoryQueries;
+struct ModelMemoryQueryScope {
+    ModelMemoryQueryScope() {g_modelMemoryQueries.Begin();}
+    ~ModelMemoryQueryScope() {g_modelMemoryQueries.End();}
+};
 bool ModelReadable(const void* address,std::size_t size) {
     auto current=reinterpret_cast<std::uintptr_t>(address);
     if(!current||!size||current+size<current)return false;
     const auto end=current+size;
     while(current<end) {
-        MEMORY_BASIC_INFORMATION page{};++g_runtimeCounters.virtualQueries;
-        if(!VirtualQuery(reinterpret_cast<void*>(current),&page,sizeof(page))||page.State!=MEM_COMMIT||
-           (page.Protect&PAGE_GUARD)||(page.Protect&0xff)==PAGE_NOACCESS)return false;
-        const auto next=reinterpret_cast<std::uintptr_t>(page.BaseAddress)+page.RegionSize;
+        ModelMemoryRegion page;
+        if(!g_modelMemoryQueries.Query(current,page)||page.state!=MEM_COMMIT||
+           (page.protection&PAGE_GUARD)||(page.protection&0xff)==PAGE_NOACCESS)return false;
+        const auto next=page.end;
         if(next<=current)return false;
         current=next;
     }
@@ -44,14 +83,15 @@ bool ModelReadable(const void* address,std::size_t size) {
 template<class T> bool ModelRead(const void* address,T& value) {
     if(!ModelReadable(address,sizeof(value)))return false;
     __try {std::memcpy(&value,address,sizeof(value));return true;}
-    __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+    __except(EXCEPTION_EXECUTE_HANDLER) {g_modelMemoryQueries.Invalidate();return false;}
 }
 void* ModelMethod(void* object,int slot) {
     void** table=nullptr;void* method=nullptr;
     if(slot<0||slot>256||!ModelRead(object,table)||!table||!ModelRead(table+slot,method)||!method)return nullptr;
-    MEMORY_BASIC_INFORMATION page{};++g_runtimeCounters.virtualQueries;
-    if(!VirtualQuery(method,&page,sizeof(page))||page.State!=MEM_COMMIT||(page.Protect&PAGE_GUARD))return nullptr;
-    const DWORD access=page.Protect&0xff;
+    ModelMemoryRegion page;
+    if(!g_modelMemoryQueries.Query(reinterpret_cast<std::uintptr_t>(method),page)||
+       page.state!=MEM_COMMIT||(page.protection&PAGE_GUARD))return nullptr;
+    const DWORD access=page.protection&0xff;
     return access==PAGE_EXECUTE||access==PAGE_EXECUTE_READ||access==PAGE_EXECUTE_READWRITE||access==PAGE_EXECUTE_WRITECOPY?method:nullptr;
 }
 template<class R,class... Args> bool ModelCall(void* object,int slot,R& output,Args... args) {
@@ -59,14 +99,14 @@ template<class R,class... Args> bool ModelCall(void* object,int slot,R& output,A
     g_drawTrace.stage="renderer.model_asset";g_drawTrace.surfaceSlot=slot;
     g_drawTrace.function=reinterpret_cast<std::uintptr_t>(method);
     __try {output=reinterpret_cast<R(__thiscall*)(void*,Args...)>(method)(object,args...);return true;}
-    __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+    __except(EXCEPTION_EXECUTE_HANDLER) {g_modelMemoryQueries.Invalidate();return false;}
 }
 template<class... Args> bool ModelCallVoid(void* object,int slot,Args... args) {
     void* method=ModelMethod(object,slot);if(!method)return false;
     g_drawTrace.stage="renderer.model_asset";g_drawTrace.surfaceSlot=slot;
     g_drawTrace.function=reinterpret_cast<std::uintptr_t>(method);
     __try {reinterpret_cast<void(__thiscall*)(void*,Args...)>(method)(object,args...);return true;}
-    __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+    __except(EXCEPTION_EXECUTE_HANDLER) {g_modelMemoryQueries.Invalidate();return false;}
 }
 bool BorrowedTextureReady(void* surface,const ThemeTexture& texture);
 void InvalidateModelTextureValidation(int id);
@@ -777,6 +817,9 @@ void Renderer::Initialize(void* surface,void* materials) {
     }
 }
 bool Renderer::Draw(const Snapshot& snapshot,const Layout& layout,const Settings& settings,const GameHudTheme* theme) {
+    // Begin unconditionally: a previous outer SEH handler may have bypassed
+    // C++ cleanup, and a hidden or failed draw must not retain page metadata.
+    ModelMemoryQueryScope modelMemoryQueries;
     if (!surface_ || layout.cards.empty() || layout.suppressed) return false;
     g_themeTextureValidation.clear();
     const int fontHeight=std::clamp(layout.cards.front().bounds.h/3,12,22);

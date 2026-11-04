@@ -1270,17 +1270,22 @@ void CheckGameHudThemeCapture() {
     snapshot.players[0].incapacitated=false;
     const unsigned long reappliedFont=903;std::memcpy(textImages[0].data()+0x20,&reappliedFont,sizeof(reappliedFont));
     const auto reapplied=GameHudThemeStep(snapshot,slots,2560,1440,1525,error);
-    Check(reapplied.states[0].ready&&reapplied.states[0].name.font==903&&!reapplied.states[1].ready&&panels.nodes[3].scheme==2,
-          "reapplying resources under the same scheme handle discards older unobserved state templates");
+    Check(reapplied.states[0].ready&&reapplied.states[0].name.font==903&&reapplied.states[1].ready&&panels.nodes[3].scheme==2,
+          "one same-scheme core change refreshes its own state without discarding another state before confirmation");
+    const auto confirmed=GameHudThemeStep(snapshot,slots,2560,1440,2025,error);
+    Check(confirmed.states[0].ready&&!confirmed.states[1].ready,
+          "a repeated same-source same-state font reload invalidates older unobserved resources after confirmation");
     const auto screen=GameHudThemeStep(snapshot,slots,1920,1080,1530,error);
     Check(screen.states[0].ready&&!screen.states[1].ready&&g.gameTheme.width==1920,
           "screen changes discard earlier state samples before capturing their new coordinate space");
     surface.material=false;
     const auto missing=GameHudThemeStep(snapshot,slots,1920,1080,2030,error);
-    Check(missing.available&&missing.states[0].images.empty()&&missing.states[0].name.present,
-          "unresolvable texture files are excluded while supported native text remains usable");
+    Check(missing.available&&missing.states[0].images.size()==1&&missing.states[0].name.present&&
+          missing.status.find("retained=1000")!=std::string::npos&&g.gameTheme.nextCapture==2130,
+          "one missing optional bitmap retains the last compatible appearance and schedules a bounded retry");
     surface.material=true;void* wrongTable=client.data()+0x65dfdd;put(5,0,wrongTable);
     const unsigned long noFont=0;std::memcpy(textImages[1].data()+0x20,&noFont,sizeof(noFont));
+    g.gameTheme={};
     const auto invalid=GameHudThemeStep(snapshot,slots,1920,1080,2530,error);
     Check(!invalid.available&&!invalid.states[0].ready,
           "unsupported required control vtables and zero native fonts make the state fall back instead of dropping player information");
@@ -1345,6 +1350,113 @@ void CheckGameHudThemeCapture() {
           std::any_of(merged.icons.begin(),merged.icons.end(),
           [](const ThemeIcon& icon){return icon.kind==2&&icon.item==23&&icon.texture.id==601;}),
           "later compatible occupied sources supply missing throwable and pills geometry together with their loaded icons");
+    {
+        // Real-server regression: two survivors are down, then one revives.
+        // A different native representative and its screen clipping must not
+        // discard the still-downed survivor's learned artwork or item atlas.
+        snapshot.players[0].incapacitated=snapshot.players[1].incapacitated=true;
+        panels.nodes[4].visible=panels.nodes[12].visible=false;
+        surface.path="vgui/s_panel_namvet_incap";g.gameTheme={};
+        const auto bothDown=GameHudThemeStep(snapshot,slots,1920,1080,10000,error);
+        Check(bothDown.states[1].ready&&!bothDown.states[0].ready&&bothDown.icons.size()==2,
+              "two downed native sources establish an independent down-state template and item atlas");
+        snapshot.players[0].incapacitated=false;panels.nodes[4].visible=true;
+        const auto revived=GameHudThemeStep(snapshot,slots,1920,1080,10010,error);
+        Check(revived.states[0].ready&&revived.states[1].ready&&revived.icons.size()==2,
+              "reviving one of two downed survivors does not remove the other survivor's down-state appearance or icons");
+        panels.nodes[3].bounds.x-=23;
+        for (const auto child:panels.nodes[3].children) panels.nodes[child].bounds.x-=23;
+        slots[0].bounds=panels.nodes[3].bounds;slots[0].visibleBounds={0,920,197,100};
+        const auto clipped=GameHudThemeStep(snapshot,slots,1920,1080,10510,error);
+        const auto clippedAgain=GameHudThemeStep(snapshot,slots,1920,1080,11010,error);
+        Check(clipped.states[0].width==197&&clipped.states[1].ready&&clippedAgain.states[1].ready&&
+              clippedAgain.icons.size()==2,
+              "repeated screen clipping changes the projected style without confirming a resource reload in another state");
+        std::reverse(slots.begin(),slots.end());g_runtimeCounters={};
+        const auto reordered=GameHudThemeStep(snapshot,slots,1920,1080,11020,error);
+        Check(reordered.states[1].ready&&g_runtimeCounters.themeCaptures==0,
+              "native source reordering keeps learned states without forcing another tree capture");
+        const auto retiredCalls=panels.callsByPanel[3];
+        auto& nativeChildren=panels.nodes[2].children;
+        nativeChildren.erase(std::remove(nativeChildren.begin(),nativeChildren.end(),3u),nativeChildren.end());
+        vgui.Retire(3);slots={second};
+        const auto oneSource=GameHudThemeStep(snapshot,slots,1920,1080,11030,error);
+        Check(oneSource.states[0].ready&&oneSource.states[1].ready&&oneSource.icons.size()==2&&
+              panels.callsByPanel[3]==retiredCalls&&panels.retiredCalls==0,
+              "retiring a sampling source preserves copied values without querying its old panel generation");
+        void* badLabel=client.data()+0x65dfdd;put(13,0,badLabel);
+        const auto failed=GameHudThemeStep(snapshot,slots,1920,1080,11530,error);
+        Check(failed.states[1].ready&&failed.status.find("retained=0100")!=std::string::npos&&
+              failed.status.find("failed=0100")!=std::string::npos&&g.gameTheme.nextCapture==11630,
+              "one incomplete down-state capture retains its last complete value and retries after one hundred milliseconds");
+        snapshot.players[1].pills=0;g_runtimeCounters={};
+        Check(GameHudThemeStep(snapshot,slots,1920,1080,11531,error).states[1].ready&&
+              g_runtimeCounters.themeCaptures==0&&g.gameTheme.nextCapture==11630,
+              "item churn cannot bypass the hundred-millisecond budget while a failed capture is pending");
+        snapshot.players[1].pills=23;
+        Check(GameHudThemeStep(snapshot,slots,1920,1080,11630,error).states[1].ready,
+              "a repeated transient state-capture failure remains within the bounded recovery window");
+        const auto timedOut=GameHudThemeStep(snapshot,slots,1920,1080,13530,error);
+        Check(timedOut.states[0].ready&&!timedOut.states[1].ready&&timedOut.icons.size()==2&&
+              g.gameTheme.nextCapture==14030,
+              "two seconds of failed captures expire only the failing state and restore the normal retry interval");
+        void* goodLabel=client.data()+0x65dfdc;put(13,0,goodLabel);
+        const auto recovered=GameHudThemeStep(snapshot,slots,1920,1080,14030,error);
+        Check(recovered.states[0].ready&&recovered.states[1].ready&&
+              recovered.status.find("failed=0000")!=std::string::npos,
+              "the next successful capture restores the expired state without a full HUD reset");
+        const float transparent=0,opaque=255;put(15,0x118,transparent);
+        const auto faded=GameHudThemeStep(snapshot,slots,1920,1080,14530,error);
+        Check(faded.states[1].images.size()==1&&faded.states[1].images[0].texture.tint.a>0&&
+              faded.status.find("appearance=0100")!=std::string::npos,
+              "a transient transparent downed background keeps its last visible appearance without forcing opaque new artwork");
+        put(15,0x118,opaque);
+        Check(GameHudThemeStep(snapshot,slots,1920,1080,14630,error).status.find("failed=0000")!=std::string::npos,
+              "a recovered background ends the short appearance-retention window");
+        put(15,0x118,transparent);GameHudThemeStep(snapshot,slots,1920,1080,15130,error);
+        const auto persistentFade=GameHudThemeStep(snapshot,slots,1920,1080,17130,error);
+        Check(persistentFade.states[1].ready&&persistentFade.states[1].images[0].texture.tint.a==0&&
+              persistentFade.status.find("failed=0000")!=std::string::npos,
+              "a persistently transparent custom background takes effect after two seconds rather than being overridden indefinitely");
+        put(15,0x118,opaque);GameHudThemeStep(snapshot,slots,1920,1080,17630,error);
+        ++panels.nodes[11].scheme;
+        const auto schemeChanged=GameHudThemeStep(snapshot,slots,1920,1080,18130,error);
+        Check(schemeChanged.states[1].ready&&!schemeChanged.states[0].ready,
+              "a real scheme change immediately discards earlier state templates");
+        snapshot.players[1].incapacitated=false;panels.nodes[12].visible=true;
+        GameHudThemeStep(snapshot,slots,1920,1080,18140,error);
+        snapshot.players[1].incapacitated=true;panels.nodes[12].visible=false;
+        GameHudThemeStep(snapshot,slots,1920,1080,18240,error);
+        ++panels.nodes[13].bounds.x;
+        const auto geometryCandidate=GameHudThemeStep(snapshot,slots,1920,1080,18740,error);
+        const auto geometryReload=GameHudThemeStep(snapshot,slots,1920,1080,19240,error);
+        Check(geometryCandidate.states[0].ready&&geometryCandidate.states[1].ready&&
+              !geometryReload.states[0].ready&&geometryReload.states[1].ready,
+              "only a repeated uncut core geometry change in the same source and state confirms a same-scheme reload");
+        --panels.nodes[13].bounds.x;
+        snapshot.players[1].incapacitated=false;panels.nodes[12].visible=true;
+        GameHudThemeStep(snapshot,slots,1920,1080,19245,error);
+        Check(g.gameTheme.theme.states[0].ready&&g.gameTheme.theme.states[1].ready,
+              "the source-generation turnover fixture contains both live and unobserved down templates");
+        const auto oldGeneration=g.gameTheme.generationSources.front();
+        vgui.Retire(11);vgui.Add(11);NativePanelCandidates(2,1920,1080,19246);
+        const auto replacedSources=GameHudThemeStep(snapshot,slots,1920,1080,19246,error);
+        Check(replacedSources.states[0].ready&&!replacedSources.states[1].ready&&
+              g.gameTheme.generationSources.front().handle!=oldGeneration.handle&&panels.unresolvedCalls==0,
+              "all native source generations changing under the same root and scheme starts a fresh theme generation");
+        const auto secondCalls=panels.callsByPanel[11];vgui.Retire(11);nativeChildren.clear();slots.clear();
+        Check(GameHudThemeStep(snapshot,slots,1920,1080,19250,error).available&&
+              !GameHudThemeStep(snapshot,slots,1920,1080,21250,error).available&&panels.callsByPanel[11]==secondCalls,
+              "all sampling sources disappearing has a bounded value-only grace period with no retired panel access");
+        vgui.Add(3);vgui.Add(11);nativeChildren={3,11};
+        panels.nodes[3].bounds.x+=23;
+        for (const auto child:panels.nodes[3].children) panels.nodes[child].bounds.x+=23;
+        panels.nodes[11].scheme=panels.nodes[3].scheme;
+        panels.nodes[4].visible=panels.nodes[12].visible=true;
+        for (auto& current:snapshot.players) current.incapacitated=false;
+        surface.path="vgui/native_fixture_background";g.gameTheme={};slots={slot,second};
+        NativePanelCandidates(2,1920,1080,22000);
+    }
     std::reverse(slots.begin(),slots.end());g.gameTheme={};
     Check(mergedItems(GameHudThemeStep(snapshot,slots,1920,1080,4010,error)),
           "same-state inventory geometry is complete when the active and empty native source order is reversed");
@@ -1404,8 +1516,11 @@ void CheckGameHudThemeCapture() {
           !deadOverlay.states[3].number.present&&!deadOverlay.states[3].health.present&&deadOverlay.states[3].images.size()==2,
           "a real loaded Dead overlay and name are sufficient for the native dead theme without portrait or health controls");
     surface.material=false;
-    Check(!GameHudThemeStep(snapshot,slots,1920,1080,5080,error).states[3].ready,
-          "an unresolved Dead overlay cannot falsely make a name-only state look complete");
+    const auto missingDead=GameHudThemeStep(snapshot,slots,1920,1080,5080,error);
+    Check(missingDead.states[3].ready&&missingDead.status.find("retained=0001")!=std::string::npos,
+          "a briefly unresolved Dead overlay retains the prior complete value during its recovery window");
+    Check(!GameHudThemeStep(snapshot,slots,1920,1080,7080,error).states[3].ready,
+          "a persistently unresolved Dead overlay cannot keep a name-only state complete beyond the grace period");
     ResetPanelCaches();
     Check(!g.gameTheme.theme.available&&g.gameTheme.sources.empty(),"map and panel cache reset discard all native theme samples");
     g=State();g_runtimeCounters={};

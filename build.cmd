@@ -8,29 +8,29 @@ if errorlevel 1 (
 )
 if not exist build mkdir build
 if not exist dist\bin\neko\plugins mkdir dist\bin\neko\plugins
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /DWIN32 /DNDEBUG /DNOMINMAX /Isrc /LD /Fo"build\\" src\plugin.cpp src\runtime.cpp src\layout.cpp src\renderer.cpp /link /MACHINE:X86 /DYNAMICBASE /NXCOMPAT /DEF:NekoExtraHUD.def /IMPLIB:build\NekoExtraHUD.lib /MAP:build\NekoExtraHUD.map /OUT:dist\bin\neko\plugins\NekoExtraHUD.dll bcrypt.lib user32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /DWIN32 /DNDEBUG /DNOMINMAX /Isrc /LD /Fo"build\\" src\plugin.cpp src\runtime.cpp src\layout.cpp src\renderer.cpp /link /MACHINE:X86 /DYNAMICBASE /NXCOMPAT /DEF:NekoExtraHUD.def /IMPLIB:build\NekoExtraHUD.lib /MAP:build\NekoExtraHUD.map /OUT:dist\bin\neko\plugins\NekoExtraHUD.dll bcrypt.lib user32.lib
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\layout_tests.cpp src\layout.cpp /Fe:build\layout_tests.exe /link /MACHINE:X86
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\layout_tests.cpp src\layout.cpp /Fe:build\layout_tests.exe /link /MACHINE:X86
 if errorlevel 1 exit /b 1
 build\layout_tests.exe
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\paint_context_tests.cpp /Fe:build\paint_context_tests.exe /link /MACHINE:X86
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\paint_context_tests.cpp /Fe:build\paint_context_tests.exe /link /MACHINE:X86
 if errorlevel 1 exit /b 1
 build\paint_context_tests.exe
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\runtime_adapter_tests.cpp /Fe:build\runtime_adapter_tests.exe /link /MACHINE:X86
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\runtime_adapter_tests.cpp /Fe:build\runtime_adapter_tests.exe /link /MACHINE:X86
 if errorlevel 1 exit /b 1
 build\runtime_adapter_tests.exe
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\renderer_abi_tests.cpp src\renderer.cpp /Fe:build\renderer_abi_tests.exe /link /MACHINE:X86
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\renderer_abi_tests.cpp src\renderer.cpp /Fe:build\renderer_abi_tests.exe /link /MACHINE:X86
 if errorlevel 1 exit /b 1
 build\renderer_abi_tests.exe
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\plugin_load_tests.cpp /Fe:build\plugin_load_tests.exe /link /MACHINE:X86
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\plugin_load_tests.cpp /Fe:build\plugin_load_tests.exe /link /MACHINE:X86
 if errorlevel 1 exit /b 1
 build\plugin_load_tests.exe "%cd%\dist\bin\neko\plugins\NekoExtraHUD.dll"
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\plugin_hotpath_tests.cpp /Fe:build\plugin_hotpath_tests.exe /link /MACHINE:X86 bcrypt.lib user32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /W4 /permissive- /MT /O2 /Isrc /Fo"build\\" tests\plugin_hotpath_tests.cpp /Fe:build\plugin_hotpath_tests.exe /link /MACHINE:X86 bcrypt.lib user32.lib
 if errorlevel 1 exit /b 1
 build\plugin_hotpath_tests.exe
 if errorlevel 1 exit /b 1

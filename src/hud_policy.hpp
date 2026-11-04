@@ -4,12 +4,13 @@
 #include <cstdint>
 
 namespace neh {
-enum class ReplacementReason { None,LargeRoster,DuplicateCharacter,NativeMenuOff };
+enum class ReplacementReason { None,LargeRoster,DuplicateCharacter,NativeMenuOff,L4d1SurvivorSet };
 inline const char* ReplacementReasonText(ReplacementReason reason) {
     switch(reason) {
     case ReplacementReason::LargeRoster:return "nine_or_more_survivors";
     case ReplacementReason::DuplicateCharacter:return "duplicate_survivor_character";
     case ReplacementReason::NativeMenuOff:return "native_menu_off";
+    case ReplacementReason::L4d1SurvivorSet:return "l4d1_survivor_set";
     default:return "none";
     }
 }
@@ -40,21 +41,29 @@ inline ReplacementObservation ObserveReplacement(const Snapshot& snapshot) {
 class ReplacementPolicy {
 public:
     void Reset() {*this={};}
-    ReplacementReason Observe(const Snapshot& snapshot,std::uint32_t rootHandle,std::uint32_t now) {
+    ReplacementReason Observe(const Snapshot& snapshot,std::uint32_t rootHandle,std::uint32_t now,
+                              bool replaceL4d1=false) {
         if(rootHandle==0xffffffffu)return reason_;
         if(!hasRoot_||rootHandle_!=rootHandle) {Reset();hasRoot_=true;rootHandle_=rootHandle;}
         const auto observation=ObserveReplacement(snapshot);
         if(observation.reason!=ReplacementReason::None) {
-            reason_=observation.reason;releasePending_=false;return reason_;
+            reason_=observation.reason;releasePending_=false;
+        } else if(reason_!=ReplacementReason::None) {
+            // Continue tracking the independent automatic rule even while the
+            // selected L4D1 override owns the visible result. Turning it off
+            // must neither lose a real duplicate nor restart its release timer.
+            // Missing character reads, incapacitation and death keep the auto
+            // decision; only two healthy, known, unique seconds release it.
+            if(!observation.healthyUnique) releasePending_=false;
+            else {
+                if(!releasePending_) {releasePending_=true;releaseSince_=now;}
+                if(static_cast<std::uint32_t>(now-releaseSince_)>=2000) {reason_=ReplacementReason::None;releasePending_=false;}
+            }
         }
-        if(reason_==ReplacementReason::None)return reason_;
-        // Missing character reads, incapacitation and death cannot make the
-        // original buggy branch alternate on/off. Restore only after two
-        // continuous seconds of a fully known healthy, unique roster.
-        if(!observation.healthyUnique) {releasePending_=false;return reason_;}
-        if(!releasePending_) {releasePending_=true;releaseSince_=now;}
-        if(static_cast<std::uint32_t>(now-releaseSince_)>=2000) {reason_=ReplacementReason::None;releasePending_=false;}
-        return reason_;
+        // The set-based override itself is never sticky. Use the game's current
+        // effective set rather than map names or files that may be overridden.
+        return replaceL4d1 && snapshot.inGame && snapshot.survivorSet==1?
+            ReplacementReason::L4d1SurvivorSet:reason_;
     }
 private:
     ReplacementReason reason_=ReplacementReason::None;

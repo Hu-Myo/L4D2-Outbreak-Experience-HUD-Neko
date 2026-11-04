@@ -6,6 +6,7 @@
 #include <bcrypt.h>
 #include <atomic>
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <mutex>
@@ -17,6 +18,7 @@
 #include "hud_policy.hpp"
 #include "paint_context.hpp"
 #include "runtime_counters.hpp"
+#include "menu_language.hpp"
 #pragma warning(push)
 #pragma warning(disable:4100)
 #include "../sdk/l4n_plugin.h"
@@ -192,10 +194,14 @@ void BeginPerfWindow(bool enabled,DWORD now,unsigned revision) {
     neh::TakeRuntimeCounters();
 }
 void MaybeLogPerf(DWORD now) {
-    if(!g_perf.active || now-g_perf.started<5000 || g_perf.frequency<=0)return;
+    // Original painting can re-enter this hook and advance the window before
+    // an outer paint returns. A pre-entry timestamp must not look like a
+    // multi-billion-millisecond interval after unsigned subtraction.
+    const auto elapsed=static_cast<LONG>(now-g_perf.started);
+    if(!g_perf.active || elapsed<5000 || g_perf.frequency<=0)return;
     const auto counters=neh::TakeRuntimeCounters();
     std::ostringstream out;
-    out<<std::fixed<<std::setprecision(3)<<"profile: window_ms="<<(now-g_perf.started)
+    out<<std::fixed<<std::setprecision(3)<<"profile: window_ms="<<elapsed
        <<" hooks="<<g_perf.hooks<<" classifications="<<g_perf.classifications
        <<" root_hits="<<g_perf.rootHits<<" draws="<<g_perf.draws
        <<" native_suppressed="<<g_perf.nativeSuppressed;
@@ -253,6 +259,7 @@ void WriteSettings(const neh::Settings& s) {
     put(L"gap",s.gap); put(L"row_gap",s.rowGap); put(L"offset_x",s.offsetX); put(L"offset_y",s.offsetY);
     put(L"theme",static_cast<int>(s.theme));
     put(L"single_player_test",s.singlePlayerTest);
+    put(L"replace_l4d1_team",s.replaceL4d1Team);
 }
 void LoadSettings() {
     neh::Settings s;
@@ -263,9 +270,11 @@ void LoadSettings() {
     s.offsetX=std::clamp(get(L"offset_x",0),-2000,2000); s.offsetY=std::clamp(get(L"offset_y",0),-2000,2000);
     s.theme=get(L"theme",0)==1?neh::HudTheme::GameHud:neh::HudTheme::Current;
     s.singlePlayerTest=get(L"single_player_test",0)!=0;
+    s.replaceL4d1Team=get(L"replace_l4d1_team",1)!=0;
     PublishSettings(s);
     WriteSettings(s);
-    Log(std::string("settings: enabled=")+(s.enabled?"1":"0")+" overflow="+(s.overflow?"1":"0"));
+    Log(std::string("settings: enabled=")+(s.enabled?"1":"0")+" overflow="+(s.overflow?"1":"0")+
+        " replace_l4d1_team="+(s.replaceL4d1Team?"1":"0"));
 }
 std::string FileHash(const wchar_t* path) {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -326,7 +335,7 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
     frame.nativePaintValid=g_runtime.ReadNativeHudPaintState(panel,frame.nativePaint);
     if(frame.nativePaintValid && snapshot.inGame) {
         g_policyUsed=true;
-        frame.reason=g_replacementPolicy.Observe(snapshot,frame.nativePaint.rootHandle,now);
+        frame.reason=g_replacementPolicy.Observe(snapshot,frame.nativePaint.rootHandle,now,settings.replaceL4d1Team);
         if(!frame.nativePaint.enabled)frame.reason=neh::ReplacementReason::NativeMenuOff;
     }
     const bool replacementRequested=frame.nativePaintValid && frame.reason!=neh::ReplacementReason::None &&
@@ -356,6 +365,7 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
         description<<"] hidden="<<layout.hiddenOverflow<<" overflow="<<settings.overflow;
         description<<" theme="<<(settings.theme==neh::HudTheme::GameHud?"game_hud":"current");
         description<<" single_player_test="<<settings.singlePlayerTest;
+        description<<" replace_l4d1_team="<<settings.replaceL4d1Team;
         description<<" replacement="<<layout.replacesNative
                    <<" replacement_reason="<<neh::ReplacementReasonText(frame.reason)
                    <<" native_paint_valid="<<frame.nativePaintValid;
@@ -442,7 +452,7 @@ void __fastcall PaintHook(void* self,void*,std::uint32_t panel,bool force,bool a
         if(profile)RecordPerf(PerfStage::Classify,started);
         return match;
     });
-    if(!root) {if(original)original(self,panel,force,allow);MaybeLogPerf(now);return;}
+    if(!root) {if(original)original(self,panel,force,allow);MaybeLogPerf(GetTickCount());return;}
     if(profile)++g_perf.rootHits;
     ++g_paints;
     // Prepare once before the native branch so its actual survivor identities,
@@ -475,7 +485,7 @@ void __fastcall PaintHook(void* self,void*,std::uint32_t panel,bool force,bool a
         } else if(profile)++g_perf.nativeSuppressed;
     }
     if(profile)g_perf.stages[static_cast<unsigned>(PerfStage::Total)].Add(pluginTicks+PerfNow()-renderStarted);
-    MaybeLogPerf(now);
+    MaybeLogPerf(GetTickCount());
 }
 bool InstallHook() {
     auto panel=g_runtime.PanelInterface(); if(!panel)return false;
@@ -492,7 +502,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.16 experimental x86: starting; game playtest required.");
+    Log("NekoExtraHUD 0.1.18 experimental x86: starting; game playtest required.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -589,7 +599,93 @@ void Detach() {
         DWORD ignored=0;VirtualProtect(g_hookSlot,sizeof(void*),old,&ignored);
     }
 }
-enum class Action:std::uintptr_t {Enabled=1,Overflow,Debug,Reload,Diagnostics,Theme,SinglePlayerTest};
+enum class Action:std::uintptr_t {Enabled=1,Overflow,Debug,Reload,Diagnostics,Theme,SinglePlayerTest,ReplaceL4d1Team};
+bool MenuReadable(const void* address,std::size_t size) {
+    auto current=reinterpret_cast<std::uintptr_t>(address);
+    if(!current || !size || current+size<current)return false;
+    const auto end=current+size;
+    while(current<end) {
+        MEMORY_BASIC_INFORMATION page{};
+        if(!VirtualQuery(reinterpret_cast<void*>(current),&page,sizeof(page)) || page.State!=MEM_COMMIT ||
+           (page.Protect&PAGE_GUARD) || (page.Protect&0xff)==PAGE_NOACCESS)return false;
+        const auto begin=reinterpret_cast<std::uintptr_t>(page.BaseAddress);
+        const std::uintptr_t next=begin+page.RegionSize;
+        if(next<=current || begin>current)return false;
+        current=next;
+    }
+    return true;
+}
+template<class T> bool MenuRead(const void* address,T& value) {
+    if(!MenuReadable(address,sizeof(value)))return false;
+    __try {std::memcpy(&value,address,sizeof(value));return true;}
+    __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+}
+bool CopyMenuLanguage(const char* source,char (&copied)[33]) {
+    copied[0]='\0';if(!source)return false;
+    for(std::size_t n=0;n<32;++n) {
+        char value=0;
+        const auto base=reinterpret_cast<std::uintptr_t>(source);
+        if(base+n<base || !MenuRead(reinterpret_cast<const char*>(base+n),value)) {copied[0]='\0';return false;}
+        copied[n]=value;
+        if(!value)return n>0;
+    }
+    copied[0]='\0';return false;
+}
+bool ReadConVarMenuLanguage(const void* variable,char (&copied)[33]) {
+    copied[0]='\0';
+    const auto field=[](const void* object,std::uintptr_t offset)->const void* {
+        const auto base=reinterpret_cast<std::uintptr_t>(object);
+        return base && base+offset>=base?reinterpret_cast<const void*>(base+offset):nullptr;
+    };
+    void* parent=nullptr;void* root=nullptr;const char* language=nullptr;
+    return MenuRead(field(variable,0x1c),parent) && parent &&
+        MenuRead(field(parent,0x1c),root) && root==parent &&
+        MenuRead(field(parent,0x24),language) && CopyMenuLanguage(language,copied);
+}
+bool MenuExecutable(const void* method) {
+    MEMORY_BASIC_INFORMATION page{};
+    if(!method || !VirtualQuery(method,&page,sizeof(page)) || page.State!=MEM_COMMIT || (page.Protect&PAGE_GUARD))return false;
+    const auto access=page.Protect&0xff;
+    return access==PAGE_EXECUTE || access==PAGE_EXECUTE_READ || access==PAGE_EXECUTE_READWRITE || access==PAGE_EXECUTE_WRITECOPY;
+}
+bool TryReadClientMenuLanguage(char (&copied)[33]) {
+    copied[0]='\0';
+    const auto module=GetModuleHandleW(L"vstdlib.dll");if(!module)return false;
+    const auto base=reinterpret_cast<std::uintptr_t>(module);
+    const auto exported=GetProcAddress(module,"CreateInterface");
+    // This ConVar layout is used only for the inspected VEngineCvar007 ABI.
+    // Other builds continue through the public Steam game-language API below.
+    if(reinterpret_cast<std::uintptr_t>(exported)!=base+0x10d30u || !MenuExecutable(reinterpret_cast<const void*>(exported)))return false;
+    using FactoryFn=void*(__cdecl*)(const char*,int*);
+    using FindVarFn=const void*(__thiscall*)(void*,const char*);
+    __try {
+        void* cvar=reinterpret_cast<FactoryFn>(exported)("VEngineCvar007",nullptr);
+        void** table=nullptr;void* method=nullptr;
+        if(!cvar || !MenuRead(cvar,table) || reinterpret_cast<std::uintptr_t>(table)!=base+0x207acu ||
+           !MenuRead(table+13,method) || reinterpret_cast<std::uintptr_t>(method)!=base+0x20f0u || !MenuExecutable(method))return false;
+        const void* variable=reinterpret_cast<FindVarFn>(method)(cvar,"cl_language");
+        return ReadConVarMenuLanguage(variable,copied);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+}
+bool TryReadSteamMenuLanguage(char (&copied)[33]) {
+    copied[0]='\0';
+    // Query only the game's already-loaded Steam API when a menu is requested.
+    // Never initialize Steam, load a library, or use the OS/Steam UI language.
+    const auto steam=GetModuleHandleW(L"steam_api.dll");
+    if(!steam)return false;
+    using AppsFn=void*(__cdecl*)();
+    using LanguageFn=const char*(__cdecl*)(void*);
+    const auto apps=reinterpret_cast<AppsFn>(GetProcAddress(steam,"SteamAPI_SteamApps_v008"));
+    const auto language=reinterpret_cast<LanguageFn>(GetProcAddress(steam,"SteamAPI_ISteamApps_GetCurrentGameLanguage"));
+    if(!MenuExecutable(reinterpret_cast<const void*>(apps)) || !MenuExecutable(reinterpret_cast<const void*>(language)))return false;
+    __try {
+        void* instance=apps();if(!instance)return false;
+        const char* current=language(instance);if(!current)return false;
+        return CopyMenuLanguage(current,copied);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+}
+bool UseKoreanMenu() {return neh::ResolveKoreanMenu(TryReadClientMenuLanguage,TryReadSteamMenuLanguage);}
+const char* BuildMenu(bool korean);
 const char* BuildMenu();
 const char* __cdecl MenuAction(void* user) {
     if(!g_pathsReady.load())return nullptr;
@@ -605,35 +701,41 @@ const char* __cdecl MenuAction(void* user) {
         if(action==Action::Theme)settings.theme=settings.theme==neh::HudTheme::Current?
             neh::HudTheme::GameHud:neh::HudTheme::Current;
         if(action==Action::SinglePlayerTest)settings.singlePlayerTest=!settings.singlePlayerTest;
+        if(action==Action::ReplaceL4d1Team)settings.replaceL4d1Team=!settings.replaceL4d1Team;
         PublishSettings(settings);
         WriteSettings(settings);
     }
     return BuildMenu();
 }
-const char* BuildMenu() {
+const char* BuildMenu(bool korean) {
     static std::string menu;
     const auto settings=CurrentSettings();
     std::ostringstream out;
-    out<<"\"Extra Survivor HUD\" { \"_refresh\" \"1\" ";
+    using neh::MenuText;
+    auto label=[korean](MenuText value){return neh::MenuLabel(value,korean);};
+    auto state=[&](bool enabled){return label(enabled?MenuText::On:MenuText::Off);};
+    out<<'"'<<label(MenuText::Title)<<"\" { \"_refresh\" \"1\" ";
     auto item=[&](const std::string& label,Action action) {
         out<<'"'<<label<<"\" { \"callback\" \"0x"<<std::hex<<reinterpret_cast<std::uintptr_t>(&MenuAction)
            <<"\" \"user_data\" \"0x"<<static_cast<std::uintptr_t>(action)<<"\" } ";
     };
-    item(std::string("Extension: ")+(settings.enabled?"ON":"OFF"),Action::Enabled);
-    item(std::string("8th+ teammate cards: ")+(settings.overflow?"ON":"OFF"),Action::Overflow);
-    item(std::string("Theme: ")+(settings.theme==neh::HudTheme::GameHud?"In-game HUD":"Current design"),Action::Theme);
-    item(std::string("Single-player test: ")+(settings.singlePlayerTest?"ON":"OFF"),Action::SinglePlayerTest);
-    item(std::string("Diagnostic logging: ")+(settings.debug?"ON":"OFF"),Action::Debug);
-    item("Reload extra_hud.ini",Action::Reload); item("Write diagnostic snapshot",Action::Diagnostics);
+    item(std::string(label(MenuText::Extension))+state(settings.enabled),Action::Enabled);
+    item(std::string(label(MenuText::Overflow))+state(settings.overflow),Action::Overflow);
+    item(std::string(label(MenuText::Theme))+label(settings.theme==neh::HudTheme::GameHud?MenuText::GameHud:MenuText::CurrentDesign),Action::Theme);
+    item(std::string(label(MenuText::SinglePlayerTest))+state(settings.singlePlayerTest),Action::SinglePlayerTest);
+    item(std::string(label(MenuText::DiagnosticLogging))+state(settings.debug),Action::Debug);
+    item(label(MenuText::Reload),Action::Reload);item(label(MenuText::DiagnosticSnapshot),Action::Diagnostics);
+    item(std::string(label(MenuText::L4d1Replacement))+state(settings.replaceL4d1Team),Action::ReplaceL4d1Team);
     out<<'}';menu=out.str();return menu.c_str();
 }
+const char* BuildMenu() {return BuildMenu(UseKoreanMenu());}
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.16-test";}
+    const char* GetVersion() override{return "0.1.18-test";}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
-    const char* RequestHudMenu(bool title) override{return title?"Extra Survivor HUD":BuildMenu();}
+    const char* RequestHudMenu(bool title) override{return title?neh::MenuLabel(neh::MenuText::Title,UseKoreanMenu()):BuildMenu();}
 };
 } // namespace
 extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {

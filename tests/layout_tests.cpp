@@ -420,6 +420,87 @@ void CheckNormalizedCharacterPolicy() {
               "character context and down, dead or hanging state do not change real player identities or placement in either theme");
     }
 }
+void CheckL4d1SetReplacementPolicy() {
+    Check(Settings{}.replaceL4d1Team,"L4D1 teammate replacement is enabled in the default settings");
+    Check(std::string(ReplacementReasonText(ReplacementReason::L4d1SurvivorSet))=="l4d1_survivor_set",
+          "the L4D1 set override has its own explicit diagnostic reason");
+    auto legacy=UniqueSurvivors(4);legacy.survivorSet=1;
+    auto sequel=legacy;sequel.survivorSet=2;
+    auto unknown=legacy;unknown.survivorSet=0;
+    auto outside=legacy;outside.inGame=false;
+    ReplacementPolicy policy;
+    Check(policy.Observe(legacy,10,100)==ReplacementReason::None,
+          "the three-argument policy API preserves the existing automatic-only behavior");
+    Check(policy.Observe(legacy,10,101,true)==ReplacementReason::L4d1SurvivorSet,
+          "the current effective L4D1 survivor set selects replacement with a healthy unique four-player roster");
+    Check(policy.Observe(legacy,10,102,false)==ReplacementReason::None,
+          "turning off the L4D1 option releases its own override immediately");
+    Check(policy.Observe(legacy,10,103,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(sequel,10,104,true)==ReplacementReason::None,
+          "switching to the effective L4D2 set immediately releases a previous L4D1 override");
+    Check(policy.Observe(legacy,10,105,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(unknown,10,106,true)==ReplacementReason::None,
+          "an unavailable effective survivor set is never guessed to be L4D1 or held as a forced reason");
+    Check(policy.Observe(legacy,10,107,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(outside,10,108,true)==ReplacementReason::None,
+          "leaving a live map releases the L4D1-only override immediately");
+    for(const auto state:{1,2,3,4}) {
+        auto changed=legacy;
+        if(state==1)changed.players[1].incapacitated=true;
+        if(state==2)changed.players[1].alive=false;
+        if(state==3)changed.players[1].hanging=true;
+        if(state==4)for(auto& player:changed.players)player.character=-1;
+        Check(policy.Observe(changed,10,200+state,true)==ReplacementReason::L4d1SurvivorSet,
+              "L4D1 replacement does not depend on life states or readable character identities");
+        Check(policy.Observe(changed,10,210+state,false)==ReplacementReason::None,
+              "unhealthy or unknown characters cannot make the L4D1 override sticky after its option is disabled");
+    }
+    policy.Reset();
+    Check(policy.Observe(legacy,0xffffffffu,300,true)==ReplacementReason::None,
+          "an unverified root cannot initialize the L4D1 replacement override");
+    Check(policy.Observe(legacy,0,301,true)==ReplacementReason::L4d1SurvivorSet,
+          "zero remains a valid verified root token for the L4D1 override");
+    Check(policy.Observe(legacy,0xffffffffu,302,true)==ReplacementReason::None,
+          "a missing root does not keep the L4D1-only override active");
+    policy.Reset();
+    Check(policy.Observe(sequel,0,303,true)==ReplacementReason::None,
+          "explicit reset cannot transfer a forced L4D1 result into a different set");
+    auto duplicate=legacy;duplicate.players[1].character=duplicate.players[0].character;
+    Check(policy.Observe(duplicate,20,1000,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(duplicate,20,1001,false)==ReplacementReason::DuplicateCharacter,
+          "a duplicate trigger stays independently active underneath the selectable L4D1 override");
+    Check(policy.Observe(legacy,20,1100,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(legacy,20,3099,false)==ReplacementReason::DuplicateCharacter&&
+          policy.Observe(legacy,20,3100,false)==ReplacementReason::None,
+          "automatic duplicate recovery continues its original timer while the L4D1 override is selected");
+    Check(policy.Observe(duplicate,20,3200,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(unknown,20,3201,true)==ReplacementReason::DuplicateCharacter,
+          "an unknown survivor set releases only the set override and preserves the real automatic duplicate hold");
+    Check(policy.Observe(legacy,21,3202,false)==ReplacementReason::None,
+          "a new root lifetime cannot inherit the prior automatic hold or a stale set override");
+    auto nine=Roster(8);nine.survivorSet=1;
+    Check(policy.Observe(nine,30,4000,true)==ReplacementReason::L4d1SurvivorSet&&
+          policy.Observe(nine,30,4001,false)==ReplacementReason::LargeRoster,
+          "the nine-survivor rule remains active when the L4D1-specific option is disabled");
+    nine.survivorSet=2;
+    Check(policy.Observe(nine,30,4002,true)==ReplacementReason::LargeRoster&&
+          policy.Observe(legacy,0xffffffffu,4003,true)==ReplacementReason::LargeRoster,
+          "set changes and unavailable roots cannot erase an independently active automatic large-roster decision");
+
+    policy.Reset();auto cfg=Config();
+    const bool replace=policy.Observe(legacy,40,5000,cfg.replaceL4d1Team)!=ReplacementReason::None;
+    legacy.hasSelfHudBounds=true;legacy.selfHudBounds={760,400,200,80};
+    const auto layout=PlanLayout(legacy,Native(3),cfg,960,480,replace);
+    Check(layout.replacesNative&&Ids(layout)==std::vector<int>({2,3,4})&&Safe(layout,legacy,{},960,480)&&
+          std::none_of(layout.cards.begin(),layout.cards.end(),[&](const Placement& card){return Overlap(card.bounds,legacy.selfHudBounds);}),
+          "L4D1 replacement draws each actual teammate once while reserving the local player's own HUD");
+    cfg.enabled=false;
+    Check(!PlanLayout(legacy,Native(3),cfg,960,480,replace).replacesNative,
+          "the disabled extension cannot acquire native HUD ownership through the L4D1 option");
+    cfg.enabled=true;
+    Check(!PlanLayout(legacy,{},cfg,960,480,replace).replacesNative,
+          "a forced L4D1 reason cannot bypass the existing requirement for usable native sizing sources");
+}
 void CheckAllReplacementRosters() {
     for(const auto theme:{HudTheme::Current,HudTheme::GameHud})for(const auto screen:
         std::vector<std::pair<int,int>>{{320,240},{960,480}})for(int sources=1;sources<=4;++sources)
@@ -439,7 +520,7 @@ void CheckAllReplacementRosters() {
 } // namespace
 int main() {
     CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSizingAndGuards();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
-    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckAllReplacementRosters();
+    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckL4d1SetReplacementPolicy();CheckAllReplacementRosters();
     std::cout<<"Layout/policy: "<<checks<<" checks passed (supplement and full replacement; lower-left first-fit).\n";
     return 0;
 }
