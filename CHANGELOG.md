@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.1.21 — Item icons and teammate card placement
+
+- In the **In-game HUD** theme, missing item icons can appear once their artwork becomes available, including when the extra HUD replaces all teammate cards.
+- Improved the size and placement of recovered item icons to better match the current HUD.
+- Reduced overlap between teammate cards and the local player's HUD.
+
+The build and automated checks passed. The tester confirmed in-game that the item icon size and position were corrected.
+
 ## 0.1.18 — L4D1 teammate replacement and Korean menus
 
 ### Added

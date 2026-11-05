@@ -2,15 +2,15 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[Download now — 0.1.18 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.18-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.18-public-test.zip)**
+**[Download now — 0.1.21 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/OpenTest/L4D2-Outbreak-Experience-HUD-Neko_0.1.21-public-test.zip)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. Published test download: **0.1.18**.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. The current public test download is **0.1.21**.
 
 [Patch notes](CHANGELOG.md) · [한국어 변경 사항](CHANGELOG.ko.md)
 
-0.1.18 adds an optional **L4D1 teammate HUD replacement**, enabled by default, and Korean or English menu labels that follow the game's language. It also includes the 0.1.17 changes intended to reduce intermittent item/downed-display loss and HUD-related frame overhead. **0.1.18 has not yet been confirmed in a live server test.**
+Version 0.1.21 improves item icon display and placement in the **In-game HUD** theme, including when the extra HUD replaces all teammate cards. It also reduces overlap between teammate cards and your own HUD.
 
-Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The DLL uses the name **NekoExtraHUD**; the menu is **Extra Survivor HUD**, or **추가 생존자 HUD** in the 0.1.18 Korean menu.
+Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The DLL uses the name **NekoExtraHUD**; the menu is **Extra Survivor HUD**, or **추가 생존자 HUD** in the Korean menu.
 
 > **Account and server restriction notice:** This DLL modifies the game at runtime. The author cannot guarantee that using it will not result in game/server restrictions or account bans. To the extent permitted by law, the author accepts no responsibility for such penalties. Use it only if you accept these risks of restrictions or bans.
 
@@ -28,7 +28,7 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
 
 ### 2. Add this HUD
 
-1. Download the **0.1.18 Public Test ZIP** using the link above or from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases). GitHub's **Source code** archives are not ready-to-install builds.
+1. Download the **0.1.21 Public Test ZIP** using the link above or from [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases). GitHub's **Source code** archives are not ready-to-install builds.
 2. With the game fully closed, place `NekoExtraHUD.dll` at:
 
    ```text
@@ -87,7 +87,7 @@ In a standard four-survivor game that keeps its usual teammate HUD, seeing **no 
 
 After a map has loaded, open the console, enter `l4n_menu`, and select **L4N Plugins → Extra Survivor HUD** (**추가 생존자 HUD** in Korean). Menu toggles are saved automatically.
 
-The menu uses Korean when the game's language is Korean, and English otherwise. All eight options below are included in 0.1.18.
+The menu uses Korean when the game's language is Korean, and English otherwise. All eight options below are included in 0.1.21.
 
 | English / Korean menu label | Default | What it does |
 | --- | --- | --- |
@@ -108,7 +108,7 @@ If a teammate is using a Neko model with suitable portrait artwork, the extra ca
 
 ### Display examples
 
-These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. They show earlier versions, not a 0.1.18 server test. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
+These reference screenshots use custom HUDs and Neko models. Their artwork comes from the installed add-ons and can differ from your setup. They show earlier versions. The L4D2 images are reference examples and are not separate confirmation of every state in 0.1.16.
 
 **Custom HUD used in the L4D1 examples**
 
@@ -163,8 +163,8 @@ The extra HUD starts at the lower left even if your custom teammate HUD is locat
 ## Public test notes
 
 - Check both normal play and downed, hanging, and dead states with your HUD.
-- The user confirmed 0.1.16 normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance. **0.1.18 still needs a live server test**; appearance and performance can vary with your setup.
-- See the [patch notes](CHANGELOG.md) for the 0.1.17 and 0.1.18 changes included in this release.
+- The user confirmed 0.1.16 normal operation in-game. The provided examples show normal and downed L4D1 displays, plus the **Current design** appearance. Appearance and performance can vary with your setup.
+- The 0.1.21 build passed automated checks, and the tester confirmed in-game that the item icon size and position were corrected. See the [patch notes](CHANGELOG.md) for changes in the latest source and earlier releases.
 - If something looks wrong, describe your HUD/theme, survivor count, and the state in which it happened. Check a log before sharing it publicly.
 
 Redistribution terms: [Korean license](LICENSE) · [English translation](LICENSE.en.txt).

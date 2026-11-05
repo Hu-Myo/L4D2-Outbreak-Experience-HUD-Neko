@@ -281,7 +281,9 @@ void ItemSymbol(void* surface, Rect box, int kind, int item, Color ink) {
         Fill(surface,{cx+unit,cy-unit*2,unit,1},ink);
     }
 }
-void CurrentCard(void* surface,unsigned long font,unsigned long small,const Player& p,const Rect& b) {
+bool DrawResolvedItem(void* surface,ItemIconLookup lookup,int item,const Rect& box,const Rect& clip,Color ink);
+void CurrentCard(void* surface,unsigned long font,unsigned long small,const Player& p,const Rect& b,
+                 ItemIconLookup lookupItem) {
     const int pad=std::max(3,b.h/16);
     const int footer=std::max(12,b.h/4);
     const int portrait=std::max(12,b.h-footer-pad*2);
@@ -350,9 +352,13 @@ void CurrentCard(void* surface,unsigned long font,unsigned long small,const Play
         const int size=iconSize;
         const int iy=std::max(b.y+pad,barY-size-2);
         const int first=std::max(barX,right-3*(size+2));
-        ItemSymbol(surface,{first,iy,size,size},0,p.throwable,{232,236,227,255});
-        ItemSymbol(surface,{first+size+2,iy,size,size},1,p.medical,{232,236,227,255});
-        ItemSymbol(surface,{first+2*(size+2),iy,size,size},2,p.pills,{232,236,227,255});
+        const int items[]={p.throwable,p.medical,p.pills};
+        const Color ink{232,236,227,255};
+        for(int kind=0;kind<3;++kind) {
+            const Rect rect{first+kind*(size+2),iy,size,size};
+            if(!DrawResolvedItem(surface,lookupItem,items[kind],rect,b,ink))
+                ItemSymbol(surface,rect,kind,items[kind],ink);
+        }
     }
     Text(surface,small,b.x+pad,b.y+b.h-footer+1,{235,237,231,255},Wide(p.name),b.w-pad*2);
 }
@@ -584,6 +590,30 @@ int HeldItem(const Player& player,int kind) {
     return kind==0?player.throwable:kind==1?player.medical:player.pills;
 }
 bool HasItemRoom(const Rect& rect) {return rect.w>=8 && rect.h>=8;}
+bool DrawResolvedItem(void* surface,ItemIconLookup lookup,int item,const Rect& box,const Rect& clip,Color ink) {
+    if(!lookup || item<=0)return false;
+    const Rect visible=Intersection(box,clip);
+    if(!HasItemRoom(visible))return false;
+    const auto* icon=lookup(item);
+    if(!icon || icon->item!=item || icon->width<=0 || icon->height<=0)return false;
+    if(icon->usingFont) {
+        // CHudTexture stores the game's measured glyph size. The glyph only
+        // has the intended meaning in its own font and cannot be scaled.
+        if(!icon->font || !icon->glyph || icon->width>visible.w || icon->height>visible.h)return false;
+        Text(surface,icon->font,visible.x+(visible.w-icon->width)/2,visible.y+(visible.h-icon->height)/2,
+             ink,std::wstring(1,icon->glyph));
+    } else {
+        const double scale=std::min(static_cast<double>(visible.w)/icon->width,
+                                    static_cast<double>(visible.h)/icon->height);
+        const int width=std::clamp(static_cast<int>(icon->width*scale),1,visible.w);
+        const int height=std::clamp(static_cast<int>(icon->height*scale),1,visible.h);
+        const Rect rect{visible.x+(visible.w-width)/2,visible.y+(visible.h-height)/2,width,height};
+        auto texture=icon->texture;texture.tint=ink;
+        if(!ThemeTextureRect(surface,texture,rect,clip))return false;
+    }
+    ++g_runtimeCounters.itemIconRecoveries;
+    return true;
+}
 struct LiveItemWidget {ThemeWidget widget;bool inferred=false;};
 LiveItemWidget PrepareItemWidget(int kind,const GameHudCardStyle& style,const Rect& card) {
     LiveItemWidget result{style.items[static_cast<std::size_t>(kind)],false};
@@ -641,7 +671,19 @@ Rect SafeItemRect(const Rect& card,int kind) {
     const int y=std::clamp(barY-size-2,card.y,card.y+card.h-size);
     return {first+kind*(size+gap),y,size,size};
 }
-struct ItemFallback {Rect rect;int kind=0,item=0;Color ink;};
+Rect ThemedItemRect(const GameHudCardStyle& style,const Rect& card,int kind) {
+    if(!style.health.present)return {};
+    const auto bar=Intersection(Project(style.health.rect,style,card),card);
+    const int gap=std::max(2,card.h/48);
+    const int size=std::min({card.h/5,(bar.w/2-gap*3)/3,bar.y-card.y-gap});
+    if(size<8)return {};
+    // Reserve the other half above the bar for the health number.
+    const bool numberOnRight=style.number.present && style.number.alignment%3==2;
+    const int rowWidth=size*3+gap*2;
+    const int first=numberOnRight?bar.x+gap:bar.x+bar.w-gap-rowWidth;
+    return {first+kind*(size+gap),bar.y-gap-size,size,size};
+}
+struct ItemFallback {Rect art,symbol;int kind=0,item=0;Color ink;};
 void LiveItem(void* surface,const Player& player,int kind,const LiveItemWidget& prepared,
               const GameHudCardStyle& style,const Rect& card,const GameHudTheme& theme,
               std::vector<ItemFallback>& fallbacks) {
@@ -650,7 +692,11 @@ void LiveItem(void* surface,const Player& player,int kind,const LiveItemWidget& 
     const auto& widget=prepared.widget;
     Rect box=Project(widget.rect,style,card);
     const bool safeArea=!HasItemRoom(Intersection(box,card));
-    if(safeArea)box=SafeItemRect(card,kind);
+    const Rect symbolBox=safeArea?SafeItemRect(card,kind):box;
+    if(safeArea) {
+        box=ThemedItemRect(style,card,kind);
+        if(!HasItemRoom(box))box=symbolBox;
+    }
     if(!HasItemRoom(box))return;
     const auto found=std::find_if(theme.icons.begin(),theme.icons.end(),
         [&](const ThemeIcon& icon){return icon.kind==kind && icon.item==item;});
@@ -670,7 +716,7 @@ void LiveItem(void* surface,const Player& player,int kind,const LiveItemWidget& 
         // No speculative font-icon entry points: unsupported glyphs use the
         // existing item symbol and keep the extra player's actual item kind.
     }
-    const auto visible=Intersection(box,card);
+    const auto visible=Intersection(symbolBox,card);
     const int size=std::min(visible.w,visible.h);
     auto ink=BoundedColor(found==theme.icons.end()?widget.color:found->color);
     // A hidden/empty source slot must not hide an item actually held by this
@@ -678,11 +724,10 @@ void LiveItem(void* surface,const Player& player,int kind,const LiveItemWidget& 
     // readable opaque fallback, after native decorations cannot cover it.
     if(ink.r+ink.g+ink.b<96)ink={232,236,227,255};
     ink.a=255;
-    fallbacks.push_back({{visible.x,visible.y,size,size},kind,item,ink});
-    ++g_runtimeCounters.themeItemFallbacks;
+    fallbacks.push_back({box,{visible.x,visible.y,size,size},kind,item,ink});
 }
 void LiveCard(void* surface,unsigned long font,unsigned long small,const Player& player,const Rect& card,
-              const GameHudCardStyle& style,const GameHudTheme& theme) {
+              const GameHudCardStyle& style,const GameHudTheme& theme,ItemIconLookup lookupItem) {
     enum class Kind {Image,Portrait,Name,Number,Status,Health,HealthIcon,Item};
     struct Entry {Kind kind;const ThemeWidget* widget;std::size_t index;};
     std::vector<Entry> entries;entries.reserve(style.images.size()+9);
@@ -755,7 +800,11 @@ void LiveCard(void* surface,unsigned long font,unsigned long small,const Player&
                 normalState?healthColor:widget.color,false);
         } else LiveItem(surface,player,static_cast<int>(entry.index),items[entry.index],style,card,theme,itemFallbacks);
     }
-    for(const auto& item:itemFallbacks)ItemSymbol(surface,item.rect,item.kind,item.item,item.ink);
+    for(const auto& item:itemFallbacks) {
+        if(DrawResolvedItem(surface,lookupItem,item.item,item.art,card,item.ink))continue;
+        ItemSymbol(surface,item.symbol,item.kind,item.item,item.ink);
+        ++g_runtimeCounters.themeItemFallbacks;
+    }
 }
 bool SizedStyle(const GameHudCardStyle& style) {
     return style.ready && style.width>0 && style.height>0;
@@ -784,7 +833,7 @@ void AddDeadStatus(GameHudCardStyle& style,const GameHudCardStyle& normal) {
     style.status.z=(std::numeric_limits<int>::max)();
 }
 bool GameHudCard(void* surface,unsigned long font,unsigned long small,const Player& player,const Rect& card,
-                 const GameHudTheme& theme) {
+                 const GameHudTheme& theme,ItemIconLookup lookupItem) {
     if(!theme.available)return false;
     const auto state=ThemeStateIndex(player);
     const auto& normal=theme.states[0];
@@ -801,7 +850,7 @@ bool GameHudCard(void* surface,unsigned long font,unsigned long small,const Play
         if(selected!=&owned) {owned=*selected;selected=&owned;}
         AddDeadStatus(owned,normal);
     }
-    LiveCard(surface,font,small,player,card,*selected,theme);
+    LiveCard(surface,font,small,player,card,*selected,theme,lookupItem);
     return true;
 }
 } // namespace
@@ -816,7 +865,8 @@ void Renderer::Initialize(void* surface,void* materials) {
         g_portraits.fill(0);g_incapPortraits.fill(0);g_textureSurface=surface;
     }
 }
-bool Renderer::Draw(const Snapshot& snapshot,const Layout& layout,const Settings& settings,const GameHudTheme* theme) {
+bool Renderer::Draw(const Snapshot& snapshot,const Layout& layout,const Settings& settings,const GameHudTheme* theme,
+                    ItemIconLookup lookupItem) {
     // Begin unconditionally: a previous outer SEH handler may have bypassed
     // C++ cleanup, and a hidden or failed draw must not retain page metadata.
     ModelMemoryQueryScope modelMemoryQueries;
@@ -842,9 +892,9 @@ bool Renderer::Draw(const Snapshot& snapshot,const Layout& layout,const Settings
         if (it!=snapshot.players.end()) {
             g_drawTrace.playerIndex=it->index;
             const bool selected=settings.theme==HudTheme::GameHud;
-            if(!(selected && theme && GameHudCard(surface_,font_,smallFont_,*it,placement.bounds,*theme))) {
+            if(!(selected && theme && GameHudCard(surface_,font_,smallFont_,*it,placement.bounds,*theme,lookupItem))) {
                 if(selected)++g_runtimeCounters.themeFallbackCards;
-                CurrentCard(surface_,font_,smallFont_,*it,placement.bounds);
+                CurrentCard(surface_,font_,smallFont_,*it,placement.bounds,selected?lookupItem:nullptr);
             }
             submitted=true;
         }

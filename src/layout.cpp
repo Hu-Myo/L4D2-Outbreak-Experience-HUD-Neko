@@ -127,10 +127,19 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
     const int baseY=std::clamp(screenHeight-cardHeight+std::clamp(cfg.offsetY,-screenHeight,screenHeight),
                                0,screenHeight-cardHeight);
     std::vector<Rect> occupied=replaceNative?std::vector<Rect>{}:nativeRects;
+    Rect self{};
     if (snap.hasSelfHudBounds) {
-        const auto self=Intersection(snap.selfHudBounds,{0,0,screenWidth,screenHeight});
-        if (self.w>0 && self.h>0)occupied.push_back(self);
+        self=Intersection(snap.selfHudBounds,{0,0,screenWidth,screenHeight});
     }
+    if (self.w<=0 || self.h<=0) {
+        // Keep the lower-right local HUD clear while its panel is unavailable.
+        // The reserve covers the portrait, health and nearby state indicators
+        // in the HUD's 480-unit proportional coordinate space.
+        const int reserveWidth=std::min(screenWidth,(screenHeight*164+479)/480);
+        const int reserveHeight=(screenHeight*100+479)/480;
+        self={screenWidth-reserveWidth,screenHeight-reserveHeight,reserveWidth,reserveHeight};
+    }
+    occupied.push_back(self);
     std::size_t next=0;
     // Scan free intervals from the lower left. A blocked interval advances to
     // its right edge, rather than losing that teammate or assuming fixed 3/7

@@ -457,6 +457,9 @@ struct FakePanelNode {
     std::vector<std::uint32_t> children;
     std::array<unsigned char,0x268> clientObject{};
     int z=0;std::uint32_t scheme=1;
+    bool hasLocalPos=false;
+    int localX=0,localY=0;
+    std::array<int,4> insets{};
 };
 struct FakePanels {
     void** vtable;
@@ -478,6 +481,16 @@ void __fastcall FakePanelSize(FakePanels* p,void*,std::uint32_t id,int* w,int* h
 }
 void __fastcall FakePanelPos(FakePanels* p,void*,std::uint32_t id,int* x,int* y) {
     *x=Node(p,id).bounds.x; *y=Node(p,id).bounds.y;
+}
+void __fastcall FakePanelLocalPos(FakePanels* p,void*,std::uint32_t id,int* x,int* y) {
+    const auto& node=Node(p,id);
+    const auto& parent=p->nodes[node.parent];
+    *x=node.hasLocalPos?node.localX:node.bounds.x-parent.bounds.x-parent.insets[0];
+    *y=node.hasLocalPos?node.localY:node.bounds.y-parent.bounds.y-parent.insets[1];
+}
+void __fastcall FakePanelInset(FakePanels* p,void*,std::uint32_t id,int* left,int* top,int* right,int* bottom) {
+    const auto& insets=Node(p,id).insets;
+    *left=insets[0];*top=insets[1];*right=insets[2];*bottom=insets[3];
 }
 void __fastcall FakePanelClip(FakePanels* p,void*,std::uint32_t id,int* left,int* top,int* right,int* bottom) {
     const auto& clip=Node(p,id).clip;
@@ -1169,12 +1182,91 @@ bool __fastcall FakeThemeTextureFile(FakeThemeSurface* self,void*,int id,char* o
 void __fastcall FakeThemeTextureSize(FakeThemeSurface* self,void*,int,int* width,int* height) {
     ++self->sizes;*width=self->width;*height=self->height;
 }
+void CheckGameHudItemIconLookup() {
+    using namespace neh;
+    constexpr int pipeBomb=14,adrenaline=23,vomitJar=25;
+    constexpr std::uint16_t invalidHandle=0xffff;
+    std::vector<unsigned char> client(0x7b4900);
+    std::array<unsigned char,16*4> records{};
+    std::array<unsigned char,0x884> pipeInfo{},adrenalineInfo{};
+    std::array<unsigned char,0xac> pipeArt{},adrenalineArt{};
+    const auto put=[](auto& bytes,std::size_t offset,const auto& value) {
+        std::memcpy(bytes.data()+offset,&value,sizeof(value));
+    };
+    const auto setHandle=[&](int item,std::uint16_t handle) {
+        put(client,0x7b4838+2*static_cast<std::size_t>(item),handle);
+    };
+    for (int item=0;item<=55;++item) setHandle(item,invalidHandle);
+    put(client,0x7b4830,std::uint8_t(1));
+    put(client,0x6dfdf2,std::uint16_t(3));
+    put(client,0x6dfde4,static_cast<void*>(records.data()));
+    put(records,16+0xc,static_cast<void*>(pipeInfo.data()));
+    put(records,32+0xc,static_cast<void*>(adrenalineInfo.data()));
+    // A readable decoy past the stated capacity makes a missed bounds check observable.
+    put(records,48+0xc,static_cast<void*>(pipeInfo.data()));
+    setHandle(pipeBomb,1);setHandle(adrenaline,2);setHandle(vomitJar,3);
+    put(pipeInfo,0x880,static_cast<void*>(pipeArt.data()));
+    put(adrenalineInfo,0x880,static_cast<void*>(adrenalineArt.data()));
+    put(pipeArt,0x88,601);
+    const std::array<float,4> uv={0.125f,0.25f,0.5f,0.75f};
+    std::memcpy(pipeArt.data()+0x8c,uv.data(),sizeof(uv));
+    put(pipeArt,0xa0,24);put(pipeArt,0xa8,32);
+    put(adrenalineArt,0x80,static_cast<unsigned char>(1));
+    put(adrenalineArt,0x82,static_cast<signed char>('P'));
+    put(adrenalineArt,0x84,900ul);
+    put(adrenalineArt,0xa0,12);put(adrenalineArt,0xa8,14);
+
+    void* surfaceTable[33]{};
+    surfaceTable[26]=reinterpret_cast<void*>(&FakeThemeTextureFile);
+    surfaceTable[30]=reinterpret_cast<void*>(&FakeThemeTextureSize);
+    FakeThemeSurface surface{surfaceTable};
+    surface.path="vgui/native_fixture_pipebomb";
+    g=State();g_runtimeCounters={};
+    g.client=reinterpret_cast<HMODULE>(client.data());g.surface=&surface;g.ready=true;
+
+    for (int item:{-1,0,56,(std::numeric_limits<int>::max)()})
+        Check(!GameHudItemIconStep(item,1000),"invalid item ID cannot resolve an inventory icon");
+    Check(!GameHudItemIconStep(13,1000)&&!GameHudItemIconStep(vomitJar,1000)&&surface.lookups==0,
+          "invalid and out-of-capacity weapon handles cannot reach Surface");
+
+    surface.material=false;
+    Check(!GameHudItemIconStep(pipeBomb,1000)&&surface.lookups==1&&surface.sizes==0,
+          "a cold item texture miss does not yield art from another item");
+    const auto* glyph=GameHudItemIconStep(adrenaline,1000);
+    Check(glyph&&glyph->item==adrenaline&&glyph->usingFont&&glyph->font==900ul&&glyph->glyph==L'P'&&surface.lookups==1,
+          "an independent item resolves its exact weapon font icon without a native panel or texture lookup");
+    surface.material=true;
+    Check(!GameHudItemIconStep(pipeBomb,1249)&&surface.lookups==1,
+          "a missing item icon does not query Surface again before its retry deadline");
+    const auto* image=GameHudItemIconStep(pipeBomb,1250);
+    Check(image&&image->item==pipeBomb&&!image->usingFont&&image->texture.id==601&&
+          image->texture.material==surface.path&&image->texture.u0==uv[0]&&image->texture.v1==uv[3]&&
+          image->width==24&&image->height==32&&surface.lookups==2&&surface.sizes==1,
+          "the same item recovers its loaded weapon texture and crop when the miss retry expires");
+
+    surface.path="vgui/native_fixture_pipebomb_updated";
+    const auto* cached=GameHudItemIconStep(pipeBomb,2249);
+    Check(cached&&cached->texture.material!=surface.path&&surface.lookups==2,
+          "a successful item lookup reuses its copied descriptor through its cache window");
+    const auto* refreshed=GameHudItemIconStep(pipeBomb,2250);
+    Check(refreshed&&refreshed->texture.material==surface.path&&surface.lookups==3,
+          "a successful item lookup refreshes against the current Surface texture at its deadline");
+
+    ResetPanelCaches();surface.material=false;
+    Check(!GameHudItemIconStep(pipeBomb,2251)&&surface.lookups==4,
+          "a map reset drops the cached item icon even before its success deadline");
+    ResetPanelCaches();put(client,0x7b4830,std::uint8_t(0));surface.material=true;
+    Check(!GameHudItemIconStep(pipeBomb,2252)&&surface.lookups==4,
+          "an uninitialized weapon table never reaches Surface");
+    g=State();g_runtimeCounters={};
+}
 void CheckGameHudThemeCapture() {
     using namespace neh;
     std::vector<unsigned char> client(0x7ccc00),vguiModule(0x43500);
     void* engineTable[27]{};engineTable[5]=reinterpret_cast<void*>(&FakeScreen);
     FakeEngine engine{engineTable};FakeVgui vgui;
     void* panelTable[56]{};
+    panelTable[3]=reinterpret_cast<void*>(&FakePanelLocalPos);panelTable[13]=reinterpret_cast<void*>(&FakePanelInset);
     panelTable[5]=reinterpret_cast<void*>(&FakePanelSize);panelTable[9]=reinterpret_cast<void*>(&FakePanelZ);
     panelTable[10]=reinterpret_cast<void*>(&FakePanelPos);panelTable[11]=reinterpret_cast<void*>(&FakePanelClip);
     panelTable[15]=reinterpret_cast<void*>(&FakePanelVisible);panelTable[17]=reinterpret_cast<void*>(&FakeChildCount);
@@ -1252,6 +1344,56 @@ void CheckGameHudThemeCapture() {
     Check(cold.states[0].items[0].present&&cold.states[0].items[0].rect.x==145&&
           cold.states[0].items[0].rect.y==60&&cold.states[0].items[0].color.a==200&&cold.icons.empty(),
           "empty hidden source item slots preserve native position and tint without borrowing another item's texture");
+    {
+        auto savedTheme=g.gameTheme;
+        const auto savedSlot=panels.nodes[10];
+        const auto savedParent=panels.nodes[3];
+        auto& itemPanel=panels.nodes[10];
+        auto& itemParent=panels.nodes[3];
+        std::array<unsigned char,0xac> oldIcon{};
+        const auto putIcon=[&](std::size_t offset,const auto& value) {
+            std::memcpy(oldIcon.data()+offset,&value,sizeof(value));
+        };
+        // This otherwise valid image can be left on the hidden panel by an old item.
+        const std::array<float,4> oldUv={0,0,1,1};
+        putIcon(0x88,textureId);putIcon(0x8c,oldUv);putIcon(0xa0,20);putIcon(0xa8,15);
+        put(10,0x150,static_cast<void*>(oldIcon.data()));put(10,0x1d4,static_cast<unsigned char>(1));
+        snapshot.players[0].throwable=14;
+        const auto isItemAt=[](const GameHudTheme& theme,int x,int y) {
+            const auto& item=theme.states[0].items[0];
+            return theme.available&&item.present&&item.rect.x==x&&item.rect.y==y&&item.rect.w==20&&item.rect.h==15;
+        };
+        g.gameTheme={};
+        const auto held=GameHudThemeStep(snapshot,slots,2560,1440,2000,error);
+        Check(isItemAt(held,145,60)&&held.icons.empty(),
+              "a held item keeps verified hidden slot geometry without borrowing stale native art");
+
+        itemPanel.bounds.x=1;itemPanel.bounds.y=1;itemPanel.hasLocalPos=true;
+        itemPanel.localX=93;itemPanel.localY=33;itemParent.insets={7,9,11,13};
+        g.gameTheme={};
+        const auto reconstructed=GameHudThemeStep(snapshot,slots,2560,1440,2500,error);
+        Check(isItemAt(reconstructed,100,42)&&reconstructed.icons.empty(),
+              "stale hidden absolute bounds recover from local position and the visible parent's inset");
+        const auto captures=g_runtimeCounters.themeCaptures;
+        auto& itemChildren=itemParent.children;
+        itemChildren.erase(std::remove(itemChildren.begin(),itemChildren.end(),10u),itemChildren.end());
+        const auto missing=GameHudThemeStep(snapshot,slots,2560,1440,3000,error);
+        Check(isItemAt(missing,100,42)&&missing.icons.empty()&&g_runtimeCounters.themeCaptures==captures+1,
+              "a fresh compatible capture retains previous geometry when a held item's slot disappears");
+
+        itemChildren=savedParent.children;
+        itemPanel.localX=205;g.gameTheme={};
+        const auto outside=GameHudThemeStep(snapshot,slots,2560,1440,3500,error);
+        Check(outside.available&&!outside.states[0].items[0].present,
+              "local reconstruction rejects a slot outside the native teammate card");
+        itemPanel.localX=93;itemPanel.bounds.w=0;g.gameTheme={};
+        const auto empty=GameHudThemeStep(snapshot,slots,2560,1440,4000,error);
+        Check(empty.available&&!empty.states[0].items[0].present,
+              "local reconstruction never accepts a zero-width native item slot");
+
+        snapshot.players[0].throwable=0;
+        itemPanel=savedSlot;itemParent=savedParent;g.gameTheme=std::move(savedTheme);
+    }
     const unsigned long changedFont=902;std::memcpy(textImages[1].data()+0x20,&changedFont,sizeof(changedFont));
     g_runtimeCounters={};const auto warm=GameHudThemeStep(snapshot,slots,2560,1440,1010,error);
     Check(warm.states[0].number.font==901&&g_runtimeCounters.themeCaptures==0&&g_runtimeCounters.traversedNodes==0,
@@ -1877,6 +2019,7 @@ int main() {
     CheckNativeHudPaintState();
     CheckIncrementalSelfDiscovery();
     CheckSafePanelLifetimes();
+    CheckGameHudItemIconLookup();
     CheckGameHudThemeCapture();
     CheckModelPortraitAdapter();
     CheckMemoryQueryScope();

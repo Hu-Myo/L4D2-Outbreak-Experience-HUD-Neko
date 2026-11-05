@@ -25,7 +25,7 @@ static_assert(sizeof(void*) == 4, "Neko 2.51.0 is an x86 process; build Win32.")
 // These slots match Valve's modern IPanel.h AND Neko's actual instructions:
 // GetChildren=0x4c, GetName=0x90, GetPanel=0xdc.
 namespace pi {
-constexpr int size=5, absPos=10, clipRect=11, visible=15, childCount=17,
+constexpr int pos=3,size=5,absPos=10,clipRect=11,inset=13,visible=15,childCount=17,
               child=18, parent=20, fullyVisible=26, name=36, className=37,
               getPanel=55;
 }
@@ -371,6 +371,12 @@ struct HudThemeCache {
     std::array<bool,4> failed{};
     GameHudTheme theme;
 };
+constexpr int kWeaponInfoIdCount=56;
+struct CachedGameItemIcon {
+    ThemeIcon icon;
+    DWORD nextLookup=0;
+    bool attempted=false,ready=false;
+};
 // These addresses are comparison keys only. Every access starts from the
 // current entity again; no model/header/registry node is dereferenced later.
 struct ModelPortraitIdentity {
@@ -418,6 +424,7 @@ struct State {
     NativePanelCache nativePanels;
     std::unordered_map<std::uint32_t,VisualPanelCache> visualPanels;
     HudThemeCache gameTheme;
+    std::array<CachedGameItemIcon,kWeaponInfoIdCount> itemIcons;
     ModelPortraitCache modelPortraits;
     std::string status="Not initialized";
     std::string resourceError="CTerrorPlayerResource scan pending";
@@ -427,6 +434,7 @@ void ResetPanelCaches() {
     g.nativePanels={};
     g.visualPanels.clear();
     g.gameTheme={};
+    g.itemIcons={};
     g.modelPortraits={};
     g.selfDiscovery={};g.selfPanel=0;g.selfRef={};g.selfPanelIsNamed=false;g.nextSelfScan=0;
 }
@@ -1197,15 +1205,26 @@ void ThemePalette(ThemeCapturePass& pass) {
         std::isfinite(limp) && limp>=0 && limp<=100000) pass.medium=limp/100;
 }
 bool ThemeWidgetFor(std::uint32_t panel,void* object,const Rect& container,int order,
-                    ThemeWidget& widget,Rect& raw,Rect& visible,bool allowEmptyItem=false) {
+                    ThemeWidget& widget,Rect& raw,Rect& visible,bool& shown,bool allowHiddenItem) {
     Rect clip;
     if (!Bounds(panel,raw)) return false;
-    if (Visible(panel)) {
+    shown=Visible(panel);
+    if (shown) {
         if (!ClippedBounds(panel,raw,clip)) return false;
     } else {
         std::uint32_t parent=0;Rect parentBounds;
-        if (!allowEmptyItem || !Call(g.panel,pi::parent,parent,panel) || !parent || !Visible(parent) ||
+        if (!allowHiddenItem || !Call(g.panel,pi::parent,parent,panel) || !parent || !Visible(parent) ||
             !Bounds(parent,parentBounds) || !ClippedBounds(parent,parentBounds,clip)) return false;
+        // A hidden CIconPanel can keep absolute coordinates from an older
+        // layout pass. Its resource position is relative to the visible parent.
+        int x=0,y=0,insetX=0,insetY=0,insetRight=0,insetBottom=0;
+        if (CallVoid(g.panel,pi::pos,panel,&x,&y) &&
+            CallVoid(g.panel,pi::inset,parent,&insetX,&insetY,&insetRight,&insetBottom)) {
+            const auto absX=static_cast<std::int64_t>(parentBounds.x)+x+insetX;
+            const auto absY=static_cast<std::int64_t>(parentBounds.y)+y+insetY;
+            if (absX<=-32768 || absX>=32768 || absY<=-32768 || absY>=32768) return false;
+            raw.x=static_cast<int>(absX);raw.y=static_cast<int>(absY);
+        }
         const int left=(std::max)(raw.x,clip.x),top=(std::max)(raw.y,clip.y);
         const int right=(std::min)(raw.x+raw.w,clip.x+clip.w),bottom=(std::min)(raw.y+raw.h,clip.y+clip.h);
         if (right<=left || bottom<=top) return false;
@@ -1301,13 +1320,10 @@ bool ThemeHealth(void* object,ThemeCapturePass& pass,ThemeHealthBar& bar) {
     for (int n=0;n<3;++n) {int id=-1;if (Read(Add(object,0x1a8+n*4),id) && ThemeTextureFor(id,pass,*old[n])) old[n]->tint=tint;}
     return true;
 }
-bool ThemeInventoryIcon(void* object,int kind,int item,ThemeCapturePass& pass,ThemeIcon& icon) {
-    void* texture=nullptr;unsigned char font=0,scale=0;
-    if (item<=0 || !ThemeObject(object,g.client,0x590654) || !Read(Add(object,0x150),texture) || !texture ||
-        !Read(Add(object,0x1d4),scale) || scale>1 || !Read(Add(texture,0x80),font) || font>1 ||
-        !ThemeColor(object,0x1d6,icon.color)) return false;
-    icon.kind=kind;icon.item=item;icon.scale=scale!=0;icon.usingFont=font!=0;
-    icon.color=ThemeAlpha(object,icon.color);
+bool DecodeThemeIcon(const void* texture,ThemeCapturePass& pass,ThemeIcon& icon) {
+    unsigned char font=0;
+    if (!texture || !Read(Add(texture,0x80),font) || font>1) return false;
+    icon.usingFont=font!=0;
     int left=0,right=0,top=0,bottom=0;
     if (Read(Add(texture,0x9c),left) && Read(Add(texture,0xa0),right) &&
         Read(Add(texture,0xa4),top) && Read(Add(texture,0xa8),bottom) &&
@@ -1327,6 +1343,44 @@ bool ThemeInventoryIcon(void* object,int kind,int item,ThemeCapturePass& pass,Th
     for (float value:uv) if (!std::isfinite(value) || value<0 || value>1) return false;
     if (uv[2]<=uv[0] || uv[3]<=uv[1] || icon.width<=0 || icon.height<=0) return false;
     icon.texture.u0=uv[0];icon.texture.v0=uv[1];icon.texture.u1=uv[2];icon.texture.v1=uv[3];return true;
+}
+bool ThemeInventoryIcon(void* object,int kind,int item,ThemeCapturePass& pass,ThemeIcon& icon) {
+    void* texture=nullptr;unsigned char scale=0;
+    if (item<=0 || !ThemeObject(object,g.client,0x590654) || !Read(Add(object,0x150),texture) ||
+        !Read(Add(object,0x1d4),scale) || scale>1 || !ThemeColor(object,0x1d6,icon.color)) return false;
+    icon.kind=kind;icon.item=item;icon.scale=scale!=0;icon.color=ThemeAlpha(object,icon.color);
+    return DecodeThemeIcon(texture,pass,icon);
+}
+bool ReadGameItemArt(int item,ThemeIcon& icon) {
+    // Read the pinned client's initialized weapon-info dictionary on the UI
+    // thread. These are the same handles and icon field the team HUD reads.
+    std::uint8_t initialized=0;
+    std::uint16_t handle=0,capacity=0;
+    void* records=nullptr;
+    void* info=nullptr;
+    void* texture=nullptr;
+    if (!Read(Add(g.client,0x7b4830),initialized) || initialized!=1 ||
+        !Read(Add(g.client,0x7b4838+item*2),handle) || handle==0xffff ||
+        !Read(Add(g.client,0x6dfdf2),capacity) || handle>=capacity ||
+        !Read(Add(g.client,0x6dfde4),records) || !records ||
+        !Read(Add(records,handle*16+0xc),info) || !info ||
+        !Read(Add(info,0x880),texture) || !texture) return false;
+    ThemeCapturePass pass;
+    icon.item=item;
+    return DecodeThemeIcon(texture,pass,icon);
+}
+const ThemeIcon* GameHudItemIconStep(int item,DWORD now) {
+    if (!g.ready || !g.client || !g.surface || item<=0 || item>=kWeaponInfoIdCount) return nullptr;
+    auto& cached=g.itemIcons[static_cast<std::size_t>(item)];
+    if (cached.attempted && static_cast<LONG>(now-cached.nextLookup)<0)
+        return cached.ready?&cached.icon:nullptr;
+    MemoryQueryScope memoryQueries;
+    ++g_runtimeCounters.itemIconRetries;
+    cached.attempted=true;
+    cached.icon={};
+    cached.ready=ReadGameItemArt(item,cached.icon);
+    cached.nextLookup=now+(cached.ready?1000:250);
+    return cached.ready?&cached.icon:nullptr;
 }
 void StoreThemeIcon(GameHudTheme& theme,const ThemeIcon& icon) {
     const auto found=std::find_if(theme.icons.begin(),theme.icons.end(),[&](const ThemeIcon& old){return old.kind==icon.kind && old.item==icon.item;});
@@ -1354,11 +1408,11 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
                  name=="IconForSlot_First_Aid"?7:name=="IconForSlot_Pills"?8:-1;
         const bool decoration=name=="BackgroundImage" || name=="Dead" || name=="Frame" || name=="Border";
         if (role<0 && !decoration) continue;
-        void* object=ClientPanel(panel);ThemeWidget widget;Rect raw,visible;
+        void* object=ClientPanel(panel);ThemeWidget widget;Rect raw,visible;bool shown=false;
         const int vtable=role==0 || decoration?0x65d98c:role==4?0x5c8cbc:role>=6?0x590654:0x65dfdc;
         const int sourceItem=role==6?player.throwable:role==7?player.medical:role==8?player.pills:0;
         if (!ThemeObject(object,g.client,vtable) ||
-            !ThemeWidgetFor(panel,object,container,static_cast<int>(order),widget,raw,visible,role>=6 && sourceItem<=0)) continue;
+            !ThemeWidgetFor(panel,object,container,static_cast<int>(order),widget,raw,visible,shown,role>=6)) continue;
         if (role>=0) {
             ++count[role];
             resourceRects[role]={raw.x-slot.bounds.x,raw.y-slot.bounds.y,raw.w,raw.h};
@@ -1382,7 +1436,7 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
             if (raw.x!=visible.x || raw.y!=visible.y || raw.w!=visible.w || raw.h!=visible.h) continue;
             style.items[kind]=widget;
             ThemeIcon icon;
-            if (sourceItem>0 && ThemeInventoryIcon(object,kind,sourceItem,pass,icon)) StoreThemeIcon(theme,icon);
+            if (shown && sourceItem>0 && ThemeInventoryIcon(object,kind,sourceItem,pass,icon)) StoreThemeIcon(theme,icon);
         } else if (decoration) {
             ThemeImage image;
             if (ThemeImageFor(object,widget,raw,visible,pass,image)) {
@@ -1537,6 +1591,7 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     }
     if (reset) {
         cache={};cache.panelInterface=g.panel;cache.vguiInterface=g.vgui;cache.surfaceInterface=g.surface;
+        g.itemIcons={};
         cache.clientModule=g.client;cache.vguiModule=g.vguiModule;
         cache.root=g.nativePanels.rootRef;cache.width=width;cache.height=height;
     }
@@ -1596,16 +1651,16 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     // Same-scheme hot reloads require two matching observations from the same
     // source and state. A clipped card, a revived teammate or a new sampling
     // representative cannot invalidate another survivor's down/dead template.
-    if (resourceChanged) {cache.theme={};cache.failed={};cache.failureSince={};}
+    if (resourceChanged) {cache.theme={};cache.failed={};cache.failureSince={};g.itemIcons={};}
     for (std::size_t n=0;n<captured.size();++n) if (captured[n] && ThemeCoreCompatible(cache.theme.states[n],sampled.states[n])) {
         for (int kind=0;kind<3;++kind) {
             const auto& previous=cache.theme.states[n].items[kind];
             auto& current=sampled.states[n].items[kind];
             // Item possession controls the extra player's data, never whether
             // a compatible template is allowed to retain an inventory slot.
-            if (!anyHeld[n][kind] && ThemeItemGeometry(previous)) {
+            if (ThemeItemGeometry(previous)) {
                 if (!ThemeItemGeometry(current)) current=previous;
-                else if (current.color.a<=0 && previous.color.a>0) current.color=previous.color;
+                else if (!anyHeld[n][kind] && current.color.a<=0 && previous.color.a>0) current.color=previous.color;
             }
         }
     }
@@ -1890,6 +1945,9 @@ const GameHudTheme& Runtime::ReadGameHudTheme(const Snapshot& snapshot,const std
                                              int width,int height,std::string& error) {
     MemoryQueryScope memoryQueries(true);
     return GameHudThemeStep(snapshot,slots,width,height,GetTickCount(),error);
+}
+const ThemeIcon* Runtime::ReadGameHudItemIcon(int item) {
+    return GameHudItemIconStep(item,GetTickCount());
 }
 std::string Runtime::Diagnostics() const { return g.status; }
 } // namespace neh

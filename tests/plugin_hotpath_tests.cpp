@@ -104,10 +104,11 @@ const GameHudTheme& Runtime::ReadGameHudTheme(const Snapshot&,const std::vector<
     if(g_mock.themeFault)RaiseException(0xE0010024,0,0,nullptr);
     static const GameHudTheme theme;return theme;
 }
+const ThemeIcon* Runtime::ReadGameHudItemIcon(int) {return nullptr;}
 void Runtime::ScreenSize(int& width,int& height)const{++g_mock.calls;width=1920;height=1080;}
 std::string Runtime::Diagnostics()const{++g_mock.calls;return "fixture";}
 void Renderer::Initialize(void*,void*){}
-bool Renderer::Draw(const Snapshot&,const Layout& layout,const Settings&,const GameHudTheme*) {
+bool Renderer::Draw(const Snapshot&,const Layout& layout,const Settings&,const GameHudTheme*,ItemIconLookup) {
     ++g_mock.calls;++g_mock.draws;g_mock.events.push_back("draw");g_mock.renderedReplacement=layout.replacesNative;
     if(g_mock.renderFault)RaiseException(0xE0010025,0,0,nullptr);
     return g_mock.renderSubmitted;

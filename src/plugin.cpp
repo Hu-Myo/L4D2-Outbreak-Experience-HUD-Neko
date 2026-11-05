@@ -229,6 +229,8 @@ void MaybeLogPerf(DWORD now) {
        <<" theme_texture_misses="<<counters.themeTextureMisses
        <<" theme_adapted_state_cards="<<counters.themeAdaptedStateCards
        <<" theme_item_fallbacks="<<counters.themeItemFallbacks
+       <<" item_icon_retries="<<counters.itemIconRetries
+       <<" item_icon_recovered="<<counters.itemIconRecoveries
        <<" model_portrait_inspections="<<counters.modelPortraitInspections
        <<" model_portrait_lookups="<<counters.modelPortraitLookups
        <<" model_portrait_cache_hits="<<counters.modelPortraitCacheHits
@@ -422,7 +424,8 @@ void RenderExtras(PreparedFrame& frame) {
     const bool profile=frame.settings.debug && g_perf.active;
     const auto mark=profile?PerfNow():0;
     neh::WithPaintContext(frame.surface,frame.root,[](void* ptr) {
-        auto& d=*static_cast<PreparedFrame*>(ptr);d.submitted=g_renderer.Draw(d.snapshot,d.layout,d.settings,d.theme);
+        auto& d=*static_cast<PreparedFrame*>(ptr);
+        d.submitted=g_renderer.Draw(d.snapshot,d.layout,d.settings,d.theme,neh::Runtime::ReadGameHudItemIcon);
     },&frame);
     if(profile && frame.submitted)++g_perf.draws;
     if(profile)RecordPerf(PerfStage::Render,mark);
@@ -502,7 +505,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.18 experimental x86: starting; game playtest required.");
+    Log("NekoExtraHUD 0.1.21 experimental x86: starting; game playtest required.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -732,7 +735,7 @@ const char* BuildMenu() {return BuildMenu(UseKoreanMenu());}
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.18-test";}
+    const char* GetVersion() override{return "0.1.21-test";}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
     const char* RequestHudMenu(bool title) override{return title?neh::MenuLabel(neh::MenuText::Title,UseKoreanMenu()):BuildMenu();}

@@ -667,6 +667,18 @@ void CheckBorrowedTextureLifetimes() {
     }
     CheckClean(surface);g_runtimeCounters={};
 }
+struct ItemLookupProbe {
+    std::vector<int> requests;
+    const neh::ThemeIcon* reply=nullptr;
+    std::array<const neh::ThemeIcon*,3> itemReplies{};
+};
+ItemLookupProbe* activeItemLookup=nullptr;
+const neh::ThemeIcon* LookupFixtureItem(int item) {
+    activeItemLookup->requests.push_back(item);
+    for(const auto* icon:activeItemLookup->itemReplies)if(icon&&icon->item==item)return icon;
+    return activeItemLookup->reply;
+}
+
 void CheckHeldInventoryAndStateFallbacks() {
     using namespace neh;
     Surface surface;Bind(surface);surface.fonts[900]=12;surface.borrowedTextures.insert(8101);
@@ -684,11 +696,13 @@ void CheckHeldInventoryAndStateFallbacks() {
     ThemeImage background;background.widget=widget({0,0,249,111});background.fill={11,22,33,222};
     normal.images={background};
     auto items=[&](int throwable,int medical,int pills) {player.throwable=throwable;player.medical=medical;player.pills=pills;};
+    ItemLookupProbe lookupProbe;
+    ItemIconLookup lookup=nullptr;
     auto draw=[&]() {
         surface.fills.clear();surface.printed.clear();surface.textDraws.clear();surface.texturedDrawIds.clear();
         surface.textureDrawsWithUv.clear();surface.materialQueries.clear();surface.sizeQueries.clear();
-        surface.texturePaths.clear();
-        renderer.Draw(snapshot,layout,settings,&theme);
+        surface.texturePaths.clear();lookupProbe.requests.clear();
+        renderer.Draw(snapshot,layout,settings,&theme,lookup);
     };
     auto inside=[](const Rect& inner,const Rect& outer) {
         return inner.w>0&&inner.h>0&&inner.x>=outer.x&&inner.y>=outer.y&&
@@ -783,6 +797,104 @@ void CheckHeldInventoryAndStateFallbacks() {
     normal.name.present=true;player.incapacitated=false;player.health=73;settings.theme=HudTheme::Current;items(13,12,15);draw();
     Check(surface.fills.front().color==std::array<int,4>{7,10,8,218}&&Printed(surface,L"+73")&&symbols(3),
           "current design keeps its original number and three inventory symbols after the live-theme fallback changes");
+
+    settings.theme=HudTheme::GameHud;player.character=-1;items(25,0,0);
+    normal.items={};normal.items[0]=widget({130,40,24,20});
+    normal.images[0].widget.z=10;normal.images[0].texture.id=9103;
+    for(int id:{9101,9102,9103}) {
+        surface.borrowedTextures.insert(id);
+        surface.borrowedMaterials[id]="vgui/item_atlas_"+std::to_string(id);
+        surface.borrowedSizes[id]={64,64};
+    }
+    ThemeIcon sampled;sampled.kind=0;sampled.item=25;
+    sampled.texture.id=9101;sampled.texture.material=surface.borrowedMaterials[9101];
+    ThemeIcon resolved=sampled;
+    resolved.texture.id=9102;resolved.texture.material=surface.borrowedMaterials[9102];
+    resolved.texture.u0=.25f;resolved.texture.v0=.125f;resolved.texture.u1=.625f;resolved.texture.v1=.875f;
+    resolved.width=40;resolved.height=20;
+    activeItemLookup=&lookupProbe;lookup=&LookupFixtureItem;lookupProbe.reply=&resolved;
+    auto requestedHeldItem=[&]() {return lookupProbe.requests==std::vector<int>{25};};
+    auto registryArtwork=[&]() {
+        const auto* icon=drawnTexture(9102);
+        return requestedHeldItem()&&icon&&inside(icon->rect,layout.cards.front().bounds)&&icon->rect.w==24&&icon->rect.h==12&&
+            icon->uv==std::array<float,4>{.25f,.125f,.625f,.875f}&&symbols(0)&&
+            surface.texturedDrawIds==std::vector<int>{9103,9102};
+    };
+    theme.icons={sampled};theme.icons.front().item=13;draw();
+    Check(registryArtwork()&&drawnTexture(9102)->rect.x==830&&drawnTexture(9102)->rect.y==944,
+          "an unsampled held item looks up its own ID and fits the actual rectangular slot after decorations");
+    theme.icons={sampled};draw();
+    Check(lookupProbe.requests.empty()&&drawnTexture(9101)&&!drawnTexture(9102)&&symbols(0),
+          "a valid sampled bitmap keeps priority and avoids an inventory registry lookup");
+    theme.icons.front().texture.material="vgui/stale_atlas";draw();
+    Check(registryArtwork(),"a sampled texture with a stale material retries the held item before drawing a generic symbol");
+    theme.icons={sampled};theme.icons.front().color.a=0;draw();
+    Check(registryArtwork(),"hidden sampled art does not block a visible registry icon for the held item");
+    theme.icons={sampled};theme.icons.front().usingFont=true;
+    theme.icons.front().font=900;theme.icons.front().glyph=L'P';draw();
+    Check(registryArtwork()&&!Printed(surface,L"P"),"an unsupported sampled glyph retries the held item using the inventory registry");
+    lookupProbe.reply=nullptr;draw();
+    Check(requestedHeldItem()&&!drawnTexture(9101)&&!drawnTexture(9102)&&symbols(1),
+          "an unavailable registry icon preserves the visible generic symbol");
+    ThemeIcon wrongItem=resolved;wrongItem.item=13;lookupProbe.reply=&wrongItem;draw();
+    Check(requestedHeldItem()&&!drawnTexture(9102)&&symbols(1),
+          "registry artwork for a different item cannot replace the held item's symbol");
+
+    ThemeIcon resolvedGlyph=resolved;resolvedGlyph.usingFont=true;resolvedGlyph.font=900;resolvedGlyph.glyph=L'Q';
+    resolvedGlyph.width=6;resolvedGlyph.height=12;
+    lookupProbe.reply=&resolvedGlyph;draw();
+    Check(requestedHeldItem()&&symbols(0)&&std::any_of(surface.textDraws.begin(),surface.textDraws.end(),
+              [](const TextRecord& record){return record.text==L"Q"&&record.font==900;}),
+          "a fitting registry font icon prints its exact glyph and font without a generic symbol");
+    resolvedGlyph.height=21;draw();
+    Check(requestedHeldItem()&&!Printed(surface,L"Q")&&symbols(1),
+          "a registry glyph that cannot fit leaves the generic symbol without substituting another font");
+
+    theme.available=false;lookupProbe.reply=&resolved;draw();
+    Check(requestedHeldItem()&&drawnTexture(9102)&&symbols(0)&&
+          surface.fills.front().color==std::array<int,4>{7,10,8,218},
+          "the complete game-theme fallback card still draws registry art when inventory has room");
+    settings.theme=HudTheme::Current;draw();
+    Check(lookupProbe.requests.empty()&&!drawnTexture(9102)&&symbols(1),
+          "current design ignores the registry callback and retains its inventory symbol");
+
+    settings.theme=HudTheme::GameHud;theme.available=true;theme.icons.clear();
+    normal.items={};normal.items[1]=widget({154,40,24,20});draw();
+    Check(registryArtwork()&&drawnTexture(9102)->rect.x==826&&drawnTexture(9102)->rect.y==944,
+          "a nearby themed slot still supplies its inferred spacing and rectangular dimensions for registry art");
+
+    normal.items={};items(25,12,15);
+    std::array<ThemeIcon,3> restored{resolved,resolved,resolved};
+    const std::array<int,3> held{25,12,15};
+    for(std::size_t kind=0;kind<restored.size();++kind) {
+        restored[kind].item=held[kind];
+        restored[kind].width=restored[kind].height=20;
+        lookupProbe.itemReplies[kind]=&restored[kind];
+    }
+    lookupProbe.reply=nullptr;
+    auto themedRow=[&](bool onRight) {
+        if(lookupProbe.requests.size()!=held.size() ||
+           !std::is_permutation(lookupProbe.requests.begin(),lookupProbe.requests.end(),held.begin()) || !symbols(0))return false;
+        const Rect bar{700+normal.health.rect.x,900+normal.health.rect.y,normal.health.rect.w,normal.health.rect.h};
+        std::vector<Rect> icons;
+        for(const auto& record:surface.textureDrawsWithUv)if(record.id==9102)icons.push_back(record.rect);
+        if(icons.size()!=3)return false;
+        std::sort(icons.begin(),icons.end(),[](const Rect& a,const Rect& b){return a.x<b.x;});
+        for(std::size_t n=0;n<icons.size();++n) {
+            const auto& icon=icons[n];
+            const int gap=bar.y-icon.y-icon.h;
+            if(!inside(icon,layout.cards.front().bounds)||icon.w<=12||icon.h!=icon.w||
+               icon.x<bar.x||icon.x+icon.w>bar.x+bar.w||gap<0||gap>4||icon.y!=icons.front().y||
+               (n>0&&icons[n-1].x+icons[n-1].w>icon.x))return false;
+        }
+        return onRight?bar.x+bar.w-icons.back().x-icons.back().w<=4:icons.front().x-bar.x<=4;
+    };
+    normal.number.alignment=0;normal.health.rect.y=56;draw();
+    Check(themedRow(true),"with no native item slots, a left-aligned number leaves a readable registry row above the right side of the actual bar");
+    normal.number.alignment=2;normal.health.rect.y=48;draw();
+    Check(themedRow(false),"with no native item slots, a right-aligned number leaves a readable registry row above the left side of the actual bar");
+
+    activeItemLookup=nullptr;
     CheckClean(surface);
 }
 void CheckModelPortraits() {

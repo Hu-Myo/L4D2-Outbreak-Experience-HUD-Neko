@@ -95,7 +95,9 @@ void CheckFirstFitGeometry() {
     native=Native(3);native[1].bounds.x=250;native[2].bounds.x=500;
     result=PlanLayout(roster,native,cfg,960,480);
     Check(result.cards.size()==4&&result.cards[0].bounds.x==100&&result.cards[1].bounds.x==350&&result.cards[2].bounds.x==600,"first-fit fills genuine native gaps before moving beyond later original cards");
-    cfg.overflow=true;const auto wideRoster=Roster(9);native=Native(3);
+    cfg.overflow=true;auto wideRoster=Roster(9);native=Native(3);
+    wideRoster.hasSelfHudBounds=true;
+    wideRoster.selfHudBounds={0,0,160,80};
     result=PlanLayout(wideRoster,native,cfg,560,480);
     Check(Ids(result)==std::vector<int>{5,6,7,8,9,10}&&result.cards[0].bounds.x==300&&result.cards[1].bounds.x==400&&
           result.cards[2].bounds.x==0&&result.cards[2].bounds.y==400&&result.cards[2].row==1,"available width determines wrapping instead of fixed three- or seven-card columns");
@@ -119,6 +121,38 @@ void CheckFirstFitGeometry() {
     cfg.offsetX=950;cfg.offsetY=0;
     result=PlanLayout(roster,native,cfg,960,480);
     Check(result.cards.empty()&&result.hiddenOverflow==4,"insufficient remaining width hides cards instead of silently shrinking their native-derived size");
+}
+void CheckSelfHudFallback() {
+    constexpr int width=2560,height=1440;
+    const auto native=Native(3,270,120,height);
+    auto roster=Roster(11);
+    const auto cfg=Config();
+    const Rect unmeasuredSelfHud{2068,1140,492,300};
+    const std::vector<int> teammates{2,3,4,5,6,7,8,9,10,11,12};
+    auto protectsSelfHud=[&](const Layout& layout) {
+        return layout.replacesNative&&layout.hiddenOverflow==0&&Ids(layout)==teammates&&
+            layout.cards[6].bounds.x==1620&&layout.cards[6].bounds.y==1320&&
+            layout.cards[7].bounds.x==0&&layout.cards[7].bounds.y==1200&&
+            Safe(layout,roster,{},width,height)&&
+            std::none_of(layout.cards.begin(),layout.cards.end(),[&](const Placement& card) {
+                return Overlap(card.bounds,unmeasuredSelfHud);
+            });
+    };
+    Check(protectsSelfHud(PlanLayout(roster,native,cfg,width,height,true)),
+          "twelve survivors with undetected self bounds wrap the eighth teammate above the bottom row and preserve the lower-right self HUD");
+    roster.hasSelfHudBounds=true;
+    for(const Rect invalid:{Rect{2560,1200,480,240},Rect{2080,1200,0,240}}) {
+        roster.selfHudBounds=invalid;
+        Check(protectsSelfHud(PlanLayout(roster,native,cfg,width,height,true)),
+              "fully offscreen or empty self bounds still protect the lower-right self HUD");
+    }
+    roster.selfHudBounds={0,1320,270,120};
+    const auto measured=PlanLayout(roster,native,cfg,width,height,true);
+    Check(measured.replacesNative&&Ids(measured)==teammates&&measured.cards.front().bounds.x==270&&
+          Safe(measured,roster,{},width,height)&&
+          std::any_of(measured.cards.begin(),measured.cards.end(),[&](const Placement& card) {
+              return Overlap(card.bounds,unmeasuredSelfHud);
+          }),"visible measured self bounds reserve their actual position and leave the unneeded fallback area available");
 }
 void CheckSizingAndGuards() {
     auto cfg=Config();const auto roster=Roster(7);auto native=UpperNative();
@@ -519,7 +553,7 @@ void CheckAllReplacementRosters() {
 }
 } // namespace
 int main() {
-    CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSizingAndGuards();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
+    CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSelfHudFallback();CheckSizingAndGuards();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
     CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckL4d1SetReplacementPolicy();CheckAllReplacementRosters();
     std::cout<<"Layout/policy: "<<checks<<" checks passed (supplement and full replacement; lower-left first-fit).\n";
     return 0;

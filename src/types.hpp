@@ -88,6 +88,8 @@ struct NativeHudPaintState {
 // All engine calls are made on the game's UI thread. No game-owned pointers are
 // retained inside Snapshot or Layout.
 struct GameHudTheme;
+struct ThemeIcon;
+using ItemIconLookup=const ThemeIcon* (*)(int);
 class Runtime {
 public:
     bool Initialize(std::string& error);
@@ -100,6 +102,7 @@ public:
     Snapshot ReadSnapshot(std::string& error);
     const GameHudTheme& ReadGameHudTheme(const Snapshot&,const std::vector<HudSlot>&,
                                        int screenWidth,int screenHeight,std::string& error);
+    static const ThemeIcon* ReadGameHudItemIcon(int item);
     void ScreenSize(int& width, int& height) const;
     bool TeamHudVisible(std::uint32_t panel) const;
     bool ReadNativeHudPaintState(std::uint32_t panel,NativeHudPaintState& state) const;
@@ -109,7 +112,8 @@ public:
 class Renderer {
 public:
     void Initialize(void* surface,void* materials=nullptr);
-    bool Draw(const Snapshot&, const Layout&, const Settings&,const GameHudTheme* theme=nullptr);
+    bool Draw(const Snapshot&, const Layout&, const Settings&,const GameHudTheme* theme=nullptr,
+              ItemIconLookup lookupItem=nullptr);
 private:
     void* surface_=nullptr;
     unsigned long font_=0, smallFont_=0;

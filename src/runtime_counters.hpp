@@ -14,6 +14,7 @@ struct RuntimeCounters {
     std::uint64_t themeReads=0,themeCaptures=0,themeFallbackCards=0;
     std::uint64_t themeTextureQueries=0,themeTextureMisses=0;
     std::uint64_t themeAdaptedStateCards=0,themeItemFallbacks=0;
+    std::uint64_t itemIconRetries=0,itemIconRecoveries=0;
     std::uint64_t modelPortraitInspections=0,modelPortraitLookups=0,modelPortraitCacheHits=0;
     std::uint64_t modelPortraitLoadAttempts=0,modelPortraitDraws=0;
 };
