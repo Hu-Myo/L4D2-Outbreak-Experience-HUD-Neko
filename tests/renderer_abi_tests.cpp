@@ -897,6 +897,83 @@ void CheckHeldInventoryAndStateFallbacks() {
     activeItemLookup=nullptr;
     CheckClean(surface);
 }
+void CheckPreparedSurvivorStates() {
+    using namespace neh;
+    constexpr int normalArt=9301,preparedDownArt=9302,sampledDownArt=9303;
+    constexpr int preparedDeadArt=9304,sampledDeadArt=9305,downTicks=9306;
+    constexpr int firstX=700,secondX=1050,cardWidth=320;
+    Surface surface;Bind(surface);surface.fonts[900]=12;
+    for(int id:{normalArt,preparedDownArt,sampledDownArt,preparedDeadArt,sampledDeadArt,downTicks})
+        surface.borrowedTextures.insert(id);
+    Renderer renderer;renderer.Initialize(&surface);
+    auto snapshot=Snapshot("First Survivor",-1);
+    snapshot.players.front().throwable=snapshot.players.front().medical=snapshot.players.front().pills=0;
+    auto second=snapshot.players.front();second.index=9;second.name="Second Survivor";second.health=63;
+    snapshot.players.push_back(second);
+    auto& firstPlayer=snapshot.players[0];auto& secondPlayer=snapshot.players[1];
+    auto layout=Layout();layout.cards.push_back({9,0,6,{secondX,900,cardWidth,96}});
+    Settings settings;settings.theme=HudTheme::GameHud;
+    GameHudTheme theme;theme.available=true;
+    auto widget=[](Rect bounds) {
+        ThemeWidget value;value.present=true;value.rect=bounds;value.font=900;return value;
+    };
+    auto& normal=theme.states[0];normal.ready=true;normal.width=cardWidth;normal.height=96;
+    normal.portrait=widget({5,5,50,50});normal.name=widget({65,68,250,18});
+    normal.number=widget({65,5,200,18});normal.health=widget({65,44,200,10});
+    ThemeImage backdrop;backdrop.widget=widget({0,0,cardWidth,96});backdrop.texture.id=normalArt;
+    normal.images.push_back(backdrop);
+    auto& prepared=theme.preparedIncap;prepared=normal;prepared.images.front().texture.id=preparedDownArt;
+    prepared.number.rect.x=92;prepared.health.rect={92,49,180,11};
+    prepared.bar.present=prepared.bar.newMaterial=true;prepared.bar.ticks[0].id=downTicks;
+    auto& preparedDead=theme.preparedDead;preparedDead=normal;
+    preparedDead.images.front().texture.id=preparedDeadArt;preparedDead.number={};preparedDead.health={};
+    auto draw=[&]() {
+        surface.textureDrawsWithUv.clear();surface.textDraws.clear();
+        renderer.Draw(snapshot,layout,settings,&theme);
+    };
+    auto artAt=[&](int id,int x)->const TextureRecord* {
+        const auto found=std::find_if(surface.textureDrawsWithUv.begin(),surface.textureDrawsWithUv.end(),
+            [&](const TextureRecord& record){return record.id==id&&record.rect.x>=x&&record.rect.x<x+cardWidth;});
+        return found==surface.textureDrawsWithUv.end()?nullptr:&*found;
+    };
+    auto textAt=[&](const wchar_t* text,int x) {
+        return std::any_of(surface.textDraws.begin(),surface.textDraws.end(),[&](const TextRecord& record) {
+            return record.text==text&&record.x>=x&&record.x<x+cardWidth;
+        });
+    };
+    draw();
+    Check(artAt(normalArt,firstX)&&artAt(normalArt,secondX)&&!artAt(preparedDownArt,firstX),
+          "map-entry prepared artwork stays inactive while both teammates are healthy");
+    firstPlayer.incapacitated=true;firstPlayer.health=245;draw();
+    const auto* ticks=artAt(downTicks,firstX);
+    Check(artAt(preparedDownArt,firstX)&&!artAt(normalArt,firstX)&&textAt(L"DOWN 245",firstX)&&
+          ticks&&ticks->rect.x==792&&ticks->rect.y==949&&ticks->rect.w==147&&
+          artAt(normalArt,secondX)&&!artAt(preparedDownArt,secondX)&&textAt(L"+63",secondX),
+          "the first and only downed teammate uses the prepared art and current 245 HP while the other card stays normal");
+    theme.states[1]=normal;theme.states[1].images.front().texture.id=sampledDownArt;
+    secondPlayer.incapacitated=true;secondPlayer.health=178;draw();
+    Check(artAt(preparedDownArt,firstX)&&artAt(preparedDownArt,secondX)&&
+          !artAt(sampledDownArt,firstX)&&!artAt(sampledDownArt,secondX)&&
+          textAt(L"DOWN 245",firstX)&&textAt(L"DOWN 178",secondX),
+          "a later native down sample cannot override either prepared layout or share one teammate's health with another");
+    firstPlayer.incapacitated=false;firstPlayer.health=77;draw();
+    Check(artAt(normalArt,firstX)&&!artAt(preparedDownArt,firstX)&&textAt(L"+77",firstX)&&
+          artAt(preparedDownArt,secondX)&&textAt(L"DOWN 178",secondX),
+          "reviving one teammate restores only that card to its normal style and health number");
+    theme.states[2]=theme.states[1];firstPlayer.hanging=true;firstPlayer.health=96;draw();
+    ticks=artAt(downTicks,firstX);
+    Check(artAt(preparedDownArt,firstX)&&!artAt(sampledDownArt,firstX)&&textAt(L"HANG 96",firstX)&&
+          ticks&&ticks->rect.w==57&&textAt(L"DOWN 178",secondX),
+          "a hanging teammate uses the prepared incap geometry and its own hanging status and health");
+    firstPlayer.alive=false;firstPlayer.health=0;draw();
+    Check(artAt(preparedDeadArt,firstX)&&!artAt(preparedDownArt,firstX)&&!artAt(downTicks,firstX)&&textAt(L"DEAD",firstX),
+          "the prepared dead artwork supplies a complete dead card before any native death is sampled");
+    theme.states[3]=preparedDead;theme.states[3].images.front().texture.id=sampledDeadArt;draw();
+    Check(artAt(sampledDeadArt,firstX)&&!artAt(preparedDeadArt,firstX)&&textAt(L"DEAD",firstX)&&
+          artAt(preparedDownArt,secondX)&&textAt(L"DOWN 178",secondX),
+          "a valid native dead style takes precedence over its prepared fallback without changing another teammate's card");
+    CheckClean(surface);
+}
 void CheckModelPortraits() {
     using namespace neh;
     Surface surface;Bind(surface);surface.fonts[900]=12;FakeMaterialSystem materials;
@@ -1229,6 +1306,7 @@ int main() {
     CheckLegacyHealthInsets();
     CheckBorrowedTextureLifetimes();
     CheckHeldInventoryAndStateFallbacks();
+    CheckPreparedSurvivorStates();
     CheckModelPortraits();
     CheckModelMemoryQueries();
     std::cout<<"Renderer ABI: "<<checks<<" checks passed (actual Surface031 slots 11/19/72)\n";

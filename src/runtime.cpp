@@ -6,10 +6,12 @@
 #include "types.hpp"
 #include "survivor_character.hpp"
 #include "game_hud_theme.hpp"
+#include "hud_panel_resource.hpp"
 #include "runtime_counters.hpp"
 #include "draw_trace.hpp"
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <sstream>
@@ -369,6 +371,7 @@ struct HudThemeCache {
     std::vector<std::uint32_t> schemes;
     std::array<DWORD,4> failureSince{};
     std::array<bool,4> failed{};
+    bool preloadAttempted=false,preloadExact=false;
     GameHudTheme theme;
 };
 constexpr int kWeaponInfoIdCount=56;
@@ -409,6 +412,8 @@ struct State {
     void* panel=nullptr;
     void* vgui=nullptr;
     void* surface=nullptr;
+    void* filesystem=nullptr;
+    void* schemeManager=nullptr;
     HMODULE neko=nullptr;
     HMODULE client=nullptr,vguiModule=nullptr;
     bool ready=false;
@@ -424,6 +429,8 @@ struct State {
     NativePanelCache nativePanels;
     std::unordered_map<std::uint32_t,VisualPanelCache> visualPanels;
     HudThemeCache gameTheme;
+    std::string themeMap;
+    DWORD nextThemeMapCheck=0,nextThemePreloadProbe=0;
     std::array<CachedGameItemIcon,kWeaponInfoIdCount> itemIcons;
     ModelPortraitCache modelPortraits;
     std::string status="Not initialized";
@@ -434,6 +441,7 @@ void ResetPanelCaches() {
     g.nativePanels={};
     g.visualPanels.clear();
     g.gameTheme={};
+    g.themeMap.clear();g.nextThemeMapCheck=0;g.nextThemePreloadProbe=0;
     g.itemIcons={};
     g.modelPortraits={};
     g.selfDiscovery={};g.selfPanel=0;g.selfRef={};g.selfPanelIsNamed=false;g.nextSelfScan=0;
@@ -1550,6 +1558,192 @@ bool ThemeAppearanceDegraded(const GameHudCardStyle& before,const GameHudCardSty
 bool SameThemePanel(const SafePanel& a,const SafePanel& b) {
     return a.raw==b.raw && a.handle==b.handle;
 }
+bool ReadHudPanelResource(const char* path,HudPanelResource& resource) {
+    void* file=nullptr;
+    // The teammate panel preloads these same names with a null path ID.
+    if (!g.filesystem || !Call(g.filesystem,2,file,path,"rb",static_cast<const char*>(nullptr)) || !file)
+        return false;
+    struct CloseFile {
+        void* file;
+        ~CloseFile() {CallVoid(g.filesystem,3,file);}
+    } close{file};
+    constexpr int limit=64*1024;
+    std::string text(limit+1,'\0');
+    int bytes=0;
+    if (!Call(g.filesystem,0,bytes,static_cast<void*>(text.data()),limit+1,file) ||
+        bytes<=0 || bytes>limit) return false;
+    text.resize(static_cast<std::size_t>(bytes));
+    return ParseHudPanelResource(text,resource);
+}
+bool HudResourceInt(std::string_view text,int& value) {
+    if (text.empty()) return false;
+    const auto* end=text.data()+text.size();
+    const auto result=std::from_chars(text.data(),end,value);
+    if (result.ec!=std::errc{} || value<-4096 || value>4096) return false;
+    // VGUI reads integer fields with atoi even when a resource uses decimals.
+    return result.ptr==end || (*result.ptr=='.' && result.ptr+1!=end &&
+        std::all_of(result.ptr+1,end,[](char c){return c>='0' && c<='9';}));
+}
+struct HudResourceScheme {
+    void* scheme=nullptr;
+    std::uint32_t handle=0;
+    bool proportional=false;
+    bool Scale(int& value) const {
+        return !proportional || (Call(g.schemeManager,13,value,handle,value) && value>=-16384 && value<=16384);
+    }
+    Color GetColor(std::string_view name,Color fallback) const {
+        if (name.empty()) return fallback;
+        Color color;
+        std::istringstream input{std::string(name)};
+        if (input>>color.r>>color.g>>color.b>>color.a) {
+            if (color.r>=0 && color.r<=255 && color.g>=0 && color.g<=255 &&
+                color.b>=0 && color.b<=255 && color.a>=0 && color.a<=255) return color;
+            return fallback;
+        }
+        const std::uint32_t packed=static_cast<std::uint32_t>(fallback.r)|
+            (static_cast<std::uint32_t>(fallback.g)<<8)|(static_cast<std::uint32_t>(fallback.b)<<16)|
+            (static_cast<std::uint32_t>(fallback.a)<<24);
+        std::uint32_t result=packed;void* returned=nullptr;
+        // The x86 Color return is an explicit four-byte output buffer.
+        if (Call(scheme,5,returned,&result,name.data(),packed) && returned==&result)
+            return {static_cast<int>(result&255),static_cast<int>((result>>8)&255),
+                    static_cast<int>((result>>16)&255),static_cast<int>((result>>24)&255)};
+        return fallback;
+    }
+};
+bool HudResourceRect(const HudPanelControl& control,const HudResourceScheme& scheme,Rect& rect) {
+    const char* fields[]={"xpos","ypos","wide","tall"};
+    int* values[]={&rect.x,&rect.y,&rect.w,&rect.h};
+    for (int n=0;n<4;++n) {
+        if (!HudResourceInt(control.Get(fields[n]),*values[n]) || !scheme.Scale(*values[n])) return false;
+    }
+    return rect.w>0 && rect.h>0;
+}
+Rect IntersectResourceRect(const Rect& a,const Rect& b) {
+    const int x=(std::max)(a.x,b.x),y=(std::max)(a.y,b.y);
+    const int right=(std::min)(a.x+a.w,b.x+b.w),bottom=(std::min)(a.y+a.h,b.y+b.h);
+    return {x,y,(std::max)(0,right-x),(std::max)(0,bottom-y)};
+}
+bool HudResourceWidget(const HudPanelControl& control,const HudResourceScheme& scheme,const Rect& area,
+                       bool includeHidden,int order,ThemeWidget& widget) {
+    Rect rect;
+    if ((!includeHidden && control.Get("visible")=="0") || !HudResourceRect(control,scheme,rect))
+        return false;
+    const Rect clipped=IntersectResourceRect(rect,area);
+    if (!clipped.w || !clipped.h) return false;
+    rect.x-=area.x;rect.y-=area.y;
+    widget.rect=rect;widget.present=true;widget.order=order;
+    int value=0;
+    if (HudResourceInt(control.Get("zpos"),value)) widget.z=value;
+    if (HudResourceInt(control.Get("textinsetx"),value) && scheme.Scale(value)) widget.insetX=value;
+    if (HudResourceInt(control.Get("textinsety"),value) && scheme.Scale(value)) widget.insetY=value;
+    const std::string_view alignments[]={"northwest","north","northeast","west","center","east","southwest","south","southeast"};
+    const auto align=control.Get("textalignment");
+    for (int n=0;n<9;++n) if (hud_panel_resource_detail::EqualKey(align,alignments[n])) widget.alignment=n;
+    if (const auto font=control.Get("font");!font.empty()) {
+        unsigned long loaded=0;
+        if (Call(scheme.scheme,3,loaded,font.data(),scheme.proportional) && loaded) widget.font=loaded;
+    }
+    widget.color=scheme.GetColor(control.Get("fgcolor_override"),widget.color);
+    return true;
+}
+bool HudResourceImage(const HudPanelControl& control,const HudResourceScheme& scheme,const Rect& area,
+                      bool includeHidden,bool characterIncap,int order,ThemeCapturePass& pass,ThemeImage& image) {
+    if (!HudResourceWidget(control,scheme,area,includeHidden,order,image.widget)) return false;
+    image.fill=scheme.GetColor(control.Get("fillcolor"),{0,0,0,0});
+    image.characterIncap=characterIncap;
+    const auto name=control.Get("image");
+    void* object=nullptr;int texture=0;
+    if (!characterIncap && !name.empty() && Call(g.schemeManager,6,object,name.data(),control.Get("scaleimage")=="1") &&
+        ThemeObject(object,g.vguiModule,0x434f0) && Read(Add(object,4),texture) &&
+        ThemeTextureFor(texture,pass,image.texture)) {
+        image.texture.tint=scheme.GetColor(control.Get("drawcolor"),{255,255,255,255});
+        return true;
+    }
+    image.texture.tint=scheme.GetColor(control.Get("drawcolor"),{255,255,255,255});
+    return characterIncap || image.fill.a>0;
+}
+GameHudCardStyle AdaptIncapAtMapEntry(const GameHudCardStyle& normal) {
+    auto style=normal;
+    ThemeImage image;image.widget=style.portrait;image.characterIncap=true;
+    image.texture.tint={255,255,255,255};
+    style.images.push_back(std::move(image));style.portrait={};
+    style.number.color=style.bar.palette[0];
+    return style;
+}
+bool PreloadTeamHudStyles(const HudThemeSource& source,const HudSlot& slot,const GameHudCardStyle& normal,
+                          const Rect& nativeHealth,ThemeCapturePass& pass,GameHudTheme& theme) {
+    theme.preparedIncap=AdaptIncapAtMapEntry(normal);
+    HudResourceScheme scheme;scheme.handle=source.scheme;
+    if (!g.schemeManager || !Call(g.schemeManager,8,scheme.scheme,scheme.handle) || !scheme.scheme ||
+        !Call(ClientPanel(source.panel.raw),21,scheme.proportional)) return false;
+    HudPanelResource normalResource,incapResource;
+    if (!ReadHudPanelResource("resource/UI/HUD/TeammatePanel.res",normalResource) ||
+        !ReadHudPanelResource("resource/UI/HUD/TeammatePanel_Incap.res",incapResource)) return false;
+    const auto* normalHealth=normalResource.Find("Health");
+    Rect health;
+    // Detect a live native panel still using a different mounted resource.
+    if (!normalHealth || !HudResourceRect(*normalHealth,scheme,health) ||
+        health.w!=nativeHealth.w || health.h!=nativeHealth.h) return false;
+    const auto* background=incapResource.Find("BackgroundImage");
+    const Rect owner{0,0,slot.bounds.w,slot.bounds.h};
+    Rect backgroundRect;
+    if (!background || !HudResourceRect(*background,scheme,backgroundRect)) return false;
+    const Rect area=IntersectResourceRect(backgroundRect,owner);
+    if (area.w<24 || area.h<16) return false;
+    GameHudCardStyle down;down.width=area.w;down.height=area.h;down.bar=normal.bar;
+    down.healthGlyph=normal.healthGlyph;
+    const char* names[]={"Head","Name","HealthNumber","Status","Health","HealthIcon",
+                         "IconForSlot_Grenade","IconForSlot_First_Aid","IconForSlot_Pills"};
+    const ThemeWidget* defaults[]={&normal.portrait,&normal.name,&normal.number,&normal.status,&normal.health,
+        &normal.healthIcon,&normal.items[0],&normal.items[1],&normal.items[2]};
+    ThemeWidget* widgets[]={&down.portrait,&down.name,&down.number,&down.status,&down.health,&down.healthIcon,
+        &down.items[0],&down.items[1],&down.items[2]};
+    for (int n=0;n<9;++n) if (const auto* control=incapResource.Find(names[n])) {
+        auto widget=*defaults[n];widget.present=false;
+        if (n==2 || n==5) widget.color=down.bar.palette[0];
+        const int order=static_cast<int>(control-incapResource.controls.data());
+        if (HudResourceWidget(*control,scheme,area,n>=6,order,widget)) *widgets[n]=widget;
+    }
+    const char* images[]={"BackgroundImage","Frame","Border","TopScratch","BottomScratch"};
+    for (const char* name:images) if (const auto* control=incapResource.Find(name)) {
+        ThemeImage image;
+        if (HudResourceImage(*control,scheme,area,false,control==background,
+                            static_cast<int>(control-incapResource.controls.data()),pass,image))
+            down.images.push_back(std::move(image));
+    }
+    down.ready=down.name.present && down.number.present && down.health.present &&
+        !down.images.empty() && down.images.front().characterIncap;
+    if (!down.ready) return false;
+    theme.preparedIncap=std::move(down);
+
+    const auto* dead=normalResource.Find("Dead");
+    const auto* normalBackground=normalResource.Find("BackgroundImage");
+    Rect normalRect;
+    if (dead && normalBackground && HudResourceRect(*normalBackground,scheme,normalRect)) {
+        const auto deadArea=IntersectResourceRect(normalRect,owner);
+        ThemeImage image;
+        if (deadArea.w==normal.width && deadArea.h==normal.height &&
+            HudResourceImage(*dead,scheme,deadArea,true,false,
+                             static_cast<int>(dead-normalResource.controls.data()),pass,image)) {
+            auto& style=theme.preparedDead;
+            style=normal;style.number={};style.status={};style.health={};style.healthIcon={};style.items={};
+            style.portrait.color={255,0,0,200};
+            style.images.push_back(std::move(image));
+        }
+    }
+    return true;
+}
+void RefreshThemeMap(DWORD now) {
+    if (g.nextThemeMapCheck && static_cast<LONG>(now-g.nextThemeMapCheck)<0) return;
+    g.nextThemeMapCheck=now+500;
+    const char* level=nullptr;
+    if (!Call(g.engine,53,level)) return;
+    auto map=StringAt(level);
+    if (map.empty() || map==g.themeMap) return;
+    g.themeMap=std::move(map);
+    g.gameTheme={};g.itemIcons={};g.nextThemePreloadProbe=0;
+}
 const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<HudSlot>& slots,
                                     int width,int height,DWORD now,std::string& error) {
     ++g_runtimeCounters.themeReads;error.clear();auto& cache=g.gameTheme;
@@ -1570,9 +1764,10 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
         sources.push_back(source);
         if (sources.size()==4) break;
     }
-    bool reset=cache.panelInterface!=g.panel || cache.vguiInterface!=g.vgui || cache.surfaceInterface!=g.surface ||
+    bool differentTheme=cache.panelInterface!=g.panel || cache.vguiInterface!=g.vgui || cache.surfaceInterface!=g.surface ||
                cache.clientModule!=g.client || cache.vguiModule!=g.vguiModule ||
                cache.root.raw!=root || cache.root.handle!=g.nativePanels.rootRef.handle || cache.width!=width || cache.height!=height;
+    bool reset=differentTheme;
     bool changed=cache.sources.size()!=sources.size();
     if (!reset && !sources.empty() && !cache.generationSources.empty() &&
         std::none_of(sources.begin(),sources.end(),[&](const HudThemeSource& source) {
@@ -1586,11 +1781,23 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
             return SameThemePanel(prior.panel,next.panel);
         });
         if ((!cache.schemes.empty() && std::find(cache.schemes.begin(),cache.schemes.end(),next.scheme)==cache.schemes.end()) ||
-            (old!=cache.sources.end() && old->scheme!=next.scheme)) {reset=true;break;}
+            (old!=cache.sources.end() && old->scheme!=next.scheme)) {differentTheme=reset=true;break;}
         if (old==cache.sources.end() || old->playerIndex!=next.playerIndex || old->state!=next.state || old->items!=next.items) changed=true;
     }
     if (reset) {
+        GameHudCardStyle preparedIncap,preparedDead;
+        const bool keepPreload=!differentTheme && cache.preloadAttempted &&
+            std::all_of(sources.begin(),sources.end(),[&](const HudThemeSource& source) {
+                return std::find(cache.schemes.begin(),cache.schemes.end(),source.scheme)!=cache.schemes.end();
+            });
+        const bool keepExact=keepPreload && cache.preloadExact;
+        if (keepPreload) {
+            preparedIncap=std::move(cache.theme.preparedIncap);
+            preparedDead=std::move(cache.theme.preparedDead);
+        }
         cache={};cache.panelInterface=g.panel;cache.vguiInterface=g.vgui;cache.surfaceInterface=g.surface;
+        cache.preloadAttempted=keepPreload;cache.preloadExact=keepExact;
+        cache.theme.preparedIncap=std::move(preparedIncap);cache.theme.preparedDead=std::move(preparedDead);
         g.itemIcons={};
         cache.clientModule=g.client;cache.vguiModule=g.vguiModule;
         cache.root=g.nativePanels.rootRef;cache.width=width;cache.height=height;
@@ -1598,8 +1805,11 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     if (sources.empty()) {
         if (!cache.noSources) {cache.noSources=true;cache.noSourcesSince=now;}
         cache.sources.clear();
-        if (now-cache.noSourcesSince>=2000) cache.theme={};
-        cache.theme.status=cache.theme.available?"native sources unavailable; retaining theme for up to 2000ms":"No visible native card to sample";
+        if (now-cache.noSourcesSince>=2000 && !cache.preloadExact) {
+            cache.theme={};cache.preloadAttempted=false;
+        }
+        cache.theme.status=cache.preloadExact?"native sources unavailable; retaining prepared map theme":
+            cache.theme.available?"native sources unavailable; retaining theme for up to 2000ms":"No visible native card to sample";
         error=cache.theme.status;return cache.theme;
     }
     cache.noSources=false;
@@ -1617,7 +1827,10 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     std::array<bool,4> attempted{},captured{};
     std::array<std::array<unsigned,3>,4> itemPriorities{};
     std::array<std::array<bool,3>,4> anyHeld{};
-    bool resourceChanged=false;
+    bool resourceChanged=false,normalResourceChanged=false;
+    const HudThemeSource* preloadSource=nullptr;
+    const HudSlot* preloadSlot=nullptr;
+    Rect preloadHealth;
     for (std::size_t n=0;n<sources.size();++n) {
         const auto& source=sources[n];
         const auto player=std::find_if(snapshot.players.begin(),snapshot.players.end(),[&](const Player& p){return p.index==source.playerIndex;});
@@ -1626,6 +1839,9 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
         attempted[source.state]=true;
         GameHudCardStyle style,signature;GameHudTheme icons;
         if (!CaptureCardStyle(source.panel,*slot,*player,pass,icons,style,&signature)) continue;
+        if (source.state==0 && !preloadSource) {
+            preloadSource=&source;preloadSlot=&*slot;preloadHealth=signature.health.rect;
+        }
         const auto observed=std::find_if(cache.observations.begin(),cache.observations.end(),[&](const HudThemeObservation& value) {
             return SameThemePanel(value.panel,source.panel) && value.state==source.state;
         });
@@ -1636,6 +1852,7 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
             } else {observed->pending=signature;observed->confirmations=1;observed->pendingSince=now;}
             if (observed->confirmations>=2) {
                 resourceChanged=true;observed->accepted=std::move(signature);observed->pending={};observed->confirmations=0;
+                if (source.state==0) normalResourceChanged=true;
             }
         } else {observed->pending={};observed->confirmations=0;}
         for (const auto& icon:icons.icons) StoreThemeIcon(sampled,icon);
@@ -1651,7 +1868,20 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     // Same-scheme hot reloads require two matching observations from the same
     // source and state. A clipped card, a revived teammate or a new sampling
     // representative cannot invalidate another survivor's down/dead template.
-    if (resourceChanged) {cache.theme={};cache.failed={};cache.failureSince={};g.itemIcons={};}
+    if (resourceChanged) {
+        GameHudTheme replacement;
+        if (normalResourceChanged) cache.preloadAttempted=cache.preloadExact=false;
+        else {
+            replacement.preparedIncap=std::move(cache.theme.preparedIncap);
+            replacement.preparedDead=std::move(cache.theme.preparedDead);
+        }
+        cache.theme=std::move(replacement);cache.failed={};cache.failureSince={};g.itemIcons={};
+    }
+    if (preloadSource && preloadSlot && !cache.preloadAttempted) {
+        cache.preloadExact=PreloadTeamHudStyles(*preloadSource,*preloadSlot,sampled.states[0],
+                                                preloadHealth,pass,cache.theme);
+        cache.preloadAttempted=true;
+    }
     for (std::size_t n=0;n<captured.size();++n) if (captured[n] && ThemeCoreCompatible(cache.theme.states[n],sampled.states[n])) {
         for (int kind=0;kind<3;++kind) {
             const auto& previous=cache.theme.states[n].items[kind];
@@ -1696,7 +1926,8 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     for (auto& style:cache.theme.states) if (style.bar.present) {
         style.bar.palette=pass.palette;style.bar.mediumThreshold=pass.medium;
     }
-    cache.theme.available=std::any_of(cache.theme.states.begin(),cache.theme.states.end(),[](const GameHudCardStyle& style){return style.ready;});
+    cache.theme.available=cache.theme.preparedIncap.ready || cache.theme.preparedDead.ready ||
+        std::any_of(cache.theme.states.begin(),cache.theme.states.end(),[](const GameHudCardStyle& style){return style.ready;});
     std::string readyBits,retainedBits,failedBits,appearanceBits;
     for (std::size_t n=0;n<captured.size();++n) {
         readyBits+=cache.theme.states[n].ready?'1':'0';retainedBits+=retained[n]?'1':'0';
@@ -1704,7 +1935,8 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
     }
     cache.theme.status=std::string(cache.theme.available?"sampled current native HUD":"waiting for supported native controls")+
         " ready="+readyBits+" retained="+retainedBits+" failed="+failedBits+" appearance="+appearanceBits+
-        " retry="+(retry?"100ms":"500ms");
+        " retry="+(retry?"100ms":"500ms")+" down_source="+
+        (cache.preloadExact?"resource":cache.theme.preparedIncap.ready?"derived":"pending");
     if (!cache.theme.available) error=cache.theme.status;
     return cache.theme;
 }
@@ -1721,6 +1953,8 @@ bool Runtime::Initialize(std::string& error) {
     g.surface=Create(GetModuleHandleW(L"vguimatsurface.dll"),"VGUI_Surface031");
     g.neko=GetModuleHandleW(L"left4neko.dll");
     g.client=GetModuleHandleW(L"client.dll");g.vguiModule=GetModuleHandleW(L"vgui2.dll");
+    g.filesystem=Create(GetModuleHandleW(L"filesystem_stdio.dll"),"VBaseFileSystem012");
+    g.schemeManager=Create(g.vguiModule,"VGUI_Scheme010");
     g.ready=g.engine&&g.entities&&g.panel&&g.vgui&&g.surface&&g.neko;
     if (!g.ready) {
         error="Waiting for engine013 / entitylist003 / panel009 / ivgui008 / surface031 / Neko modules";
@@ -1944,7 +2178,17 @@ void Runtime::ScreenSize(int& width,int& height) const {
 const GameHudTheme& Runtime::ReadGameHudTheme(const Snapshot& snapshot,const std::vector<HudSlot>& slots,
                                              int width,int height,std::string& error) {
     MemoryQueryScope memoryQueries(true);
-    return GameHudThemeStep(snapshot,slots,width,height,GetTickCount(),error);
+    const auto now=GetTickCount();
+    if (snapshot.inGame) RefreshThemeMap(now);
+    return GameHudThemeStep(snapshot,slots,width,height,now,error);
+}
+bool Runtime::NeedsGameHudThemePreload() {
+    const auto now=GetTickCount();
+    RefreshThemeMap(now);
+    if (g.gameTheme.preloadAttempted ||
+        (g.nextThemePreloadProbe && static_cast<LONG>(now-g.nextThemePreloadProbe)<0)) return false;
+    g.nextThemePreloadProbe=now+250;
+    return true;
 }
 const ThemeIcon* Runtime::ReadGameHudItemIcon(int item) {
     return GameHudItemIconStep(item,GetTickCount());

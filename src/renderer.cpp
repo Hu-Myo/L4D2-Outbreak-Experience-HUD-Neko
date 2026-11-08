@@ -838,6 +838,8 @@ bool GameHudCard(void* surface,unsigned long font,unsigned long small,const Play
     const auto state=ThemeStateIndex(player);
     const auto& normal=theme.states[0];
     const auto* selected=&theme.states[state];
+    if((state==1 || state==2) && SizedStyle(theme.preparedIncap))selected=&theme.preparedIncap;
+    if(state==3 && !SizedStyle(*selected) && SizedStyle(theme.preparedDead))selected=&theme.preparedDead;
     GameHudCardStyle owned;
     if(!SizedStyle(*selected)) {
         if(state==0 || !NormalCanAdapt(normal))return false;

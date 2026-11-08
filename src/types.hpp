@@ -102,6 +102,7 @@ public:
     Snapshot ReadSnapshot(std::string& error);
     const GameHudTheme& ReadGameHudTheme(const Snapshot&,const std::vector<HudSlot>&,
                                        int screenWidth,int screenHeight,std::string& error);
+    bool NeedsGameHudThemePreload();
     static const ThemeIcon* ReadGameHudItemIcon(int item);
     void ScreenSize(int& width, int& height) const;
     bool TeamHudVisible(std::uint32_t panel) const;

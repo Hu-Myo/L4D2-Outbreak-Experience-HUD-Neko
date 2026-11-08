@@ -2,13 +2,13 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[즉시 다운로드 — 0.1.21 공개 테스트 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/OpenTest/L4D2-Outbreak-Experience-HUD-Neko_0.1.21-public-test.zip)**
+**[배포본 다운로드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)** · [0.1.21 공개 테스트 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/OpenTest/L4D2-Outbreak-Experience-HUD-Neko_0.1.21-public-test.zip)
 
-Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. 현재 공개 테스트 다운로드는 **0.1.21**입니다.
+Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.23을 최종 배포본으로 개발을 마무리합니다.** 플레이하고 테스트해 주셔서 감사합니다.
 
 [한국어 변경 사항](CHANGELOG.ko.md) · [English patch notes](CHANGELOG.md)
 
-0.1.21에서는 **게임 내 HUD(In-game HUD)** 테마의 아이템 아이콘 표시와 위치를 개선했습니다. 팀원 카드 전체를 추가 HUD로 대체할 때도 적용됩니다. 팀원 카드가 본인 HUD와 겹치는 경우도 줄였습니다.
+0.1.23에서는 사망 후 팀원을 관전해도 해당 팀원이 추가 HUD 표시 대상에서 빠지지 않습니다. 이전 버전의 **게임 내 HUD(In-game HUD)** 테마 다운·매달림 디자인, 아이템 아이콘, 카드 배치 개선도 포함합니다.
 
 Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합니다. DLL 이름은 **NekoExtraHUD**이며, 메뉴에는 **Extra Survivor HUD**, 한국어 메뉴에는 **추가 생존자 HUD**로 표시됩니다.
 
@@ -28,7 +28,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 ### 2. 추가 HUD 적용
 
-1. 위 링크 또는 [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)에서 **0.1.21 공개 테스트 ZIP**을 받습니다. GitHub의 **Source code** 압축파일은 바로 설치하는 배포본이 아닙니다.
+1. [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)의 Assets에서 **0.1.23 최종판 ZIP**을 받습니다. 개발용 소스 압축파일은 **Source code**로 표시됩니다.
 2. 게임을 완전히 종료한 상태에서 `NekoExtraHUD.dll`을 아래 위치에 넣습니다.
 
    ```text
@@ -87,7 +87,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 맵에 들어간 뒤 콘솔에 `l4n_menu`를 입력하고 **L4N Plugins(L4N 플러그인) → Extra Survivor HUD(추가 생존자 HUD)**를 선택합니다. 메뉴에서 바꾼 설정은 자동으로 저장됩니다.
 
-게임 언어가 한국어이면 한국어 메뉴로, 그 외에는 영어 메뉴로 표시됩니다. 0.1.21에는 아래 8개 옵션이 모두 포함되어 있습니다.
+게임 언어가 한국어이면 한국어 메뉴로, 그 외에는 영어 메뉴로 표시됩니다.
 
 | 한국어 / 영어 메뉴 이름 | 기본값 | 역할 |
 | --- | --- | --- |
@@ -160,12 +160,9 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 원래 커스텀 팀원 HUD가 다른 곳에 있어도 추가 HUD는 왼쪽 아래부터 시작합니다. 한 화면에 들어가는 카드 수는 해상도, HUD 크기와 빈 공간에 따라 달라집니다.
 
-## 공개 테스트 참고
+## 버그 제보
 
-- 정상 상태뿐 아니라 다운·매달림·사망 상태도 사용 중인 HUD에서 확인해 주세요.
-- 0.1.16은 사용자가 실제 게임에서 정상 동작을 확인했습니다. 제공된 예시는 L4D1 정상·다운 상태와 **Current design** 표시입니다. 표시와 성능은 사용자 환경에 따라 달라질 수 있습니다.
-- 0.1.21 빌드는 자동 검사를 통과했습니다. 테스터는 실제 게임에서 아이템 아이콘의 크기와 위치 문제가 해결된 것을 확인했습니다. 최신 소스와 이전 버전의 변경 내용은 [한국어 변경 사항](CHANGELOG.ko.md)에서 확인할 수 있습니다.
-- 표시 문제가 있으면 사용한 HUD·테마, 생존자 수, 문제가 생긴 상태를 함께 알려주세요. 로그는 공개하기 전에 내용을 확인해 주세요.
+플레이 중 버그를 발견하면 재현 방법, 사용한 HUD 테마, 생존자 수를 GitHub 이슈에 남겨 주세요. 표시 문제는 스크린샷을 함께 올려주시면 확인에 도움이 됩니다. [GitHub Issues](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/issues)
 
 재배포 조건: [한국어 라이선스](LICENSE) · [영어 번역](LICENSE.en.txt).
 

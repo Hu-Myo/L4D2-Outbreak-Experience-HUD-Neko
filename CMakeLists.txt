@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NekoExtraHUD VERSION 0.1.21 LANGUAGES CXX)
+project(NekoExtraHUD VERSION 0.1.23 LANGUAGES CXX)
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
   message(FATAL_ERROR "Use a Microsoft-ABI x86 toolchain: cmake -A Win32")
 endif()

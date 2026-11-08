@@ -17,7 +17,7 @@ struct MockRuntimeState {
     bool ready=true,visible=true;
     std::uint32_t root=10;
     unsigned calls=0,classifications=0,visibilityChecks=0,snapshots=0,themeReads=0,nativeReads=0;
-    bool layoutHasCards=false;
+    bool layoutHasCards=false,themePreloadPending=false;
     bool nativeStateValid=false,nativeEnabled=true,secondStateValid=true;
     bool changeHandle=false,changeEnabled=false,unsupportedOnSecond=false;
     bool surfaceReady=true,paintRootReady=true,layoutSuppressed=false,allowReplacementLayout=true;
@@ -102,8 +102,10 @@ bool Runtime::ReadNativeHudPaintState(std::uint32_t panel,NativeHudPaintState& s
 const GameHudTheme& Runtime::ReadGameHudTheme(const Snapshot&,const std::vector<HudSlot>&,int,int,std::string& error) {
     ++g_mock.calls;++g_mock.themeReads;g_mock.events.push_back("theme");error.clear();
     if(g_mock.themeFault)RaiseException(0xE0010024,0,0,nullptr);
+    g_mock.themePreloadPending=false;
     static const GameHudTheme theme;return theme;
 }
+bool Runtime::NeedsGameHudThemePreload(){return g_mock.themePreloadPending;}
 const ThemeIcon* Runtime::ReadGameHudItemIcon(int) {return nullptr;}
 void Runtime::ScreenSize(int& width,int& height)const{++g_mock.calls;width=1920;height=1080;}
 std::string Runtime::Diagnostics()const{++g_mock.calls;return "fixture";}
@@ -616,13 +618,17 @@ int main() {
           "menu exposes the preserved current design as the default theme");
     settings.theme=neh::HudTheme::GameHud;PublishSettings(settings);
     Paint(g_mock.root);
-    Check(g_mock.themeReads==1,"selected game HUD theme collects only when extra cards are present");
+    Check(g_mock.themeReads==1,"selected game HUD theme collects when extra cards are present");
     Check(std::strstr(BuildMenu(),"Theme: In-game HUD")!=nullptr,
           "menu reports the selected game HUD theme");
     g_mock.layoutHasCards=false;Paint(g_mock.root);
-    Check(g_mock.themeReads==1,"empty layouts avoid all theme collection work");
+    Check(g_mock.themeReads==1,"empty layouts skip regular theme collection");
+    g_mock.themePreloadPending=true;Paint(g_mock.root);
+    Check(g_mock.themeReads==2 && !g_mock.themePreloadPending,"map entry can preload even with no extra cards");
+    Paint(g_mock.root);
+    Check(g_mock.themeReads==2,"preload does not repeat on an empty layout");
     settings.enabled=false;PublishSettings(settings);Paint(g_mock.root);
-    Check(g_mock.themeReads==1,"OFF skips theme collection even when game HUD is selected");
+    Check(g_mock.themeReads==2,"OFF skips theme collection even when game HUD is selected");
 
     Check(!settings.singlePlayerTest&&std::strstr(BuildMenu(),"Single-player test: OFF")!=nullptr,
           "single-player testing is opt-in and its menu shows OFF by default");

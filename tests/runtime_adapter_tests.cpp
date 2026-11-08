@@ -1182,6 +1182,53 @@ bool __fastcall FakeThemeTextureFile(FakeThemeSurface* self,void*,int id,char* o
 void __fastcall FakeThemeTextureSize(FakeThemeSurface* self,void*,int,int* width,int* height) {
     ++self->sizes;*width=self->width;*height=self->height;
 }
+struct FakeHudResourceFiles {
+    void** vtable;
+    std::string normal,incap;
+    int opens=0,reads=0,closes=0;
+};
+void* __fastcall FakeHudResourceOpen(FakeHudResourceFiles* self,void*,const char* path,const char* mode,
+                                     const char* pathId) {
+    ++self->opens;
+    if (pathId || std::strcmp(mode,"rb")) return nullptr;
+    if (!std::strcmp(path,"resource/UI/HUD/TeammatePanel.res")) return &self->normal;
+    if (!std::strcmp(path,"resource/UI/HUD/TeammatePanel_Incap.res")) return &self->incap;
+    return nullptr;
+}
+int __fastcall FakeHudResourceRead(FakeHudResourceFiles* self,void*,void* buffer,int capacity,void* handle) {
+    ++self->reads;
+    if (capacity<=0 || (handle!=&self->normal && handle!=&self->incap)) return 0;
+    const auto& text=*static_cast<const std::string*>(handle);
+    const auto bytes=(std::min)(text.size(),static_cast<std::size_t>(capacity));
+    std::memcpy(buffer,text.data(),bytes);
+    return static_cast<int>(bytes);
+}
+void __fastcall FakeHudResourceClose(FakeHudResourceFiles* self,void*,void* handle) {
+    if (handle==&self->normal || handle==&self->incap) ++self->closes;
+}
+struct FakeHudResourceSchemeManager {
+    void** vtable;
+    void* scheme;
+    void* bitmap;
+    std::uint32_t handle=1;
+};
+void* __fastcall FakeHudResourceScheme(FakeHudResourceSchemeManager* self,void*,std::uint32_t handle) {
+    return handle==self->handle?self->scheme:nullptr;
+}
+int __fastcall FakeHudResourceScale(FakeHudResourceSchemeManager* self,void*,std::uint32_t handle,int value) {
+    return handle==self->handle?5*value:0;
+}
+void* __fastcall FakeHudResourceImage(FakeHudResourceSchemeManager* self,void*,const char* name,bool scale) {
+    return scale && !std::strcmp(name,"hud/scratch_fixture")?self->bitmap:nullptr;
+}
+bool __fastcall FakeHudResourceProportional(void*,void*) {return true;}
+unsigned long __fastcall FakeHudResourceFont(void*,void*,const char* name,bool proportional) {
+    return proportional && !std::strcmp(name,"DownFixtureFont")?910ul:0ul;
+}
+std::uint32_t* __fastcall FakeHudResourceColor(void*,void*,std::uint32_t* out,const char* name,std::uint32_t fallback) {
+    *out=!std::strcmp(name,"DownFixtureColor")?0xc81e140au:fallback;
+    return out;
+}
 void CheckGameHudItemIconLookup() {
     using namespace neh;
     constexpr int pipeBomb=14,adrenaline=23,vomitJar=25;
@@ -1393,6 +1440,72 @@ void CheckGameHudThemeCapture() {
 
         snapshot.players[0].throwable=0;
         itemPanel=savedSlot;itemParent=savedParent;g.gameTheme=std::move(savedTheme);
+    }
+    {
+        auto savedTheme=std::move(g.gameTheme);
+        const auto savedParent=panels.nodes[3];
+        void* playerTable[22]{};
+        playerTable[21]=reinterpret_cast<void*>(&FakeHudResourceProportional);
+        put(3,0,static_cast<void*>(playerTable));
+        void* filesystemTable[4]{};
+        filesystemTable[0]=reinterpret_cast<void*>(&FakeHudResourceRead);
+        filesystemTable[2]=reinterpret_cast<void*>(&FakeHudResourceOpen);
+        filesystemTable[3]=reinterpret_cast<void*>(&FakeHudResourceClose);
+        FakeHudResourceFiles files{filesystemTable,R"kv(
+            "TeammatePanel" {
+                "Health" { xpos 9 ypos 11 wide 29 tall 3 }
+            }
+        )kv",R"kv(
+            "TeammatePanel_Incap" {
+                "BackgroundImage" { xpos 2 ypos 3 wide 32 tall 16 drawcolor "171 172 173 174" }
+                "Name" { xpos 5 ypos 17 wide 24 tall 2 font "DownFixtureFont" textinsetx 1 }
+                "HealthNumber" { xpos 18 ypos 6 wide 8 tall 3 fgcolor_override "DownFixtureColor" }
+                "Health" { xpos 5 ypos 13 wide 23 tall 2 }
+                "IconForSlot_Grenade" { xpos 18 ypos 11 wide 3 tall 2 visible 0 }
+                "TopScratch" { xpos 8 ypos 11 wide 10 tall 3 image "hud/scratch_fixture" scaleImage 1 }
+            }
+        )kv"};
+        void* schemeTable[6]{};
+        schemeTable[3]=reinterpret_cast<void*>(&FakeHudResourceFont);
+        schemeTable[5]=reinterpret_cast<void*>(&FakeHudResourceColor);
+        void** schemeObject=schemeTable;
+        void* managerTable[14]{};
+        managerTable[6]=reinterpret_cast<void*>(&FakeHudResourceImage);
+        managerTable[8]=reinterpret_cast<void*>(&FakeHudResourceScheme);
+        managerTable[13]=reinterpret_cast<void*>(&FakeHudResourceScale);
+        FakeHudResourceSchemeManager manager{managerTable,&schemeObject,image,savedParent.scheme};
+        g.filesystem=&files;g.schemeManager=&manager;g.gameTheme={};
+        const auto preloaded=GameHudThemeStep(snapshot,slots,2560,1440,4100,error);
+        const auto& prepared=preloaded.preparedIncap;
+        Check(error.empty()&&preloaded.states[0].ready&&!preloaded.states[1].ready&&prepared.ready&&
+              preloaded.status.find("down_source=resource")!=std::string::npos&&
+              files.opens==2&&files.reads==2&&files.closes==2,
+              "the first healthy native capture preloads exact downed resources through the mounted filesystem");
+        Check(prepared.width==160&&prepared.height==80&&prepared.name.rect.x==15&&prepared.name.rect.y==70&&
+              prepared.name.font==910&&prepared.name.insetX==5&&prepared.number.rect.x==80&&prepared.number.rect.y==15&&
+              prepared.number.color.r==10&&prepared.number.color.a==200&&
+              prepared.health.rect.w==115&&prepared.health.rect.h==10&&prepared.items[0].present&&
+              prepared.items[0].rect.x==80&&prepared.items[0].rect.y==40&&
+              prepared.images.size()==2&&prepared.images[0].characterIncap&&prepared.images[0].texture.tint.a==174&&
+              prepared.images[1].texture.id==601&&prepared.images[1].texture.material==surface.path,
+              "prepared downed layout uses its own scaled geometry, scheme font and color, and mounted bitmap");
+
+        const auto captures=g_runtimeCounters.themeCaptures;
+        const auto cached=GameHudThemeStep(snapshot,slots,2560,1440,4200,error);
+        Check(cached.preparedIncap.ready&&files.opens==2&&g_runtimeCounters.themeCaptures==captures,
+              "a warm theme read preserves the prepared layout without reopening resources or recapturing controls");
+        const auto resampled=GameHudThemeStep(snapshot,slots,2560,1440,4600,error);
+        Check(resampled.preparedIncap.ready&&files.opens==2&&g_runtimeCounters.themeCaptures==captures+1,
+              "periodic healthy control sampling preserves the prepared layout without reopening resources");
+
+        files.incap.replace(files.incap.find("18 ypos 6"),2,"19");
+        manager.handle=++panels.nodes[3].scheme;
+        const auto reloaded=GameHudThemeStep(snapshot,slots,2560,1440,4610,error);
+        Check(reloaded.preparedIncap.ready&&reloaded.preparedIncap.number.rect.x==85&&prepared.number.rect.x==80&&
+              !reloaded.states[1].ready&&files.opens==4&&files.reads==4&&files.closes==4,
+              "changing the native scheme reloads current downed resources without mutating a copied theme");
+        g.filesystem=nullptr;g.schemeManager=nullptr;g.gameTheme=std::move(savedTheme);
+        panels.nodes[3]=savedParent;
     }
     const unsigned long changedFont=902;std::memcpy(textImages[1].data()+0x20,&changedFont,sizeof(changedFont));
     g_runtimeCounters={};const auto warm=GameHudThemeStep(snapshot,slots,2560,1440,1010,error);

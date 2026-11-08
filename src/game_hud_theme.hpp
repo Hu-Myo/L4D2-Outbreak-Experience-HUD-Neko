@@ -59,6 +59,8 @@ struct GameHudTheme {
     bool available=false;
     // normal, incapacitated, hanging, dead
     std::array<GameHudCardStyle,4> states;
+    // Value-only layouts prepared at map entry, independent of roster state.
+    GameHudCardStyle preparedIncap,preparedDead;
     // Normal-state numeric colors observed in the loaded HUD: low/medium/high/BW.
     std::array<Color,4> numberPalette={Color{235,56,48,255},Color{235,196,39,255},
                                      Color{135,231,44,255},Color{225,225,225,255}};

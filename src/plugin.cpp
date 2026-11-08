@@ -349,7 +349,8 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
     if(profile)RecordPerf(PerfStage::Layout,mark);
     auto& theme=frame.theme;
     std::string themeError;
-    if(settings.theme==neh::HudTheme::GameHud && !layout.cards.empty()) {
+    if(settings.theme==neh::HudTheme::GameHud && snapshot.inGame &&
+       (!layout.cards.empty() || g_runtime.NeedsGameHudThemePreload())) {
         mark=profile?PerfNow():0;
         neh::g_drawTrace.stage="runtime.theme";
         theme=&g_runtime.ReadGameHudTheme(snapshot,slots,width,height,themeError);
@@ -505,7 +506,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.21 experimental x86: starting; game playtest required.");
+    Log("NekoExtraHUD 0.1.23 x86: starting.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -735,7 +736,7 @@ const char* BuildMenu() {return BuildMenu(UseKoreanMenu());}
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.21-test";}
+    const char* GetVersion() override{return "0.1.23";}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
     const char* RequestHudMenu(bool title) override{return title?neh::MenuLabel(neh::MenuText::Title,UseKoreanMenu()):BuildMenu();}

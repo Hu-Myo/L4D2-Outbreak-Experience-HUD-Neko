@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.1.23 — Final release
+
+- After you die and spectate a teammate, that teammate stays eligible for an extra HUD card.
+- Includes 0.1.22's improvement to how the **In-game HUD** theme prepares available downed and hanging styles, reducing cases where cards fall back to a simpler design.
+
+This release wraps up planned development. If you find a bug while playing, please report it with steps to reproduce it. [GitHub Issues](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/issues)
+
 ## 0.1.21 — Item icons and teammate card placement
 
 - In the **In-game HUD** theme, missing item icons can appear once their artwork becomes available, including when the extra HUD replaces all teammate cards.

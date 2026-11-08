@@ -218,6 +218,14 @@ void CheckSinglePlayerAndIdentity() {
     Check(Ids(PlanLayout(observer,observerNative,cfg,960,480))==std::vector<int>{3,4,5},"both local and spectated player identities are excluded before intentional test mirroring");
     cfg.singlePlayerTest=false;observer=Roster(7);observer.viewIndex=5;
     Check(Ids(PlanLayout(observer,Native(3),cfg,960,480))==std::vector<int>{6,7,8},"normal supplementation excludes the observed survivor as well as the local player");
+    observer.players.front().alive=false;
+    for (int target : {5,8,2}) {
+        observer.viewIndex=target;
+        Check(Ids(PlanLayout(observer,Native(3),cfg,960,480))==std::vector<int>{5,6,7,8},
+              "after local death, switching the camera neither removes an extra teammate nor duplicates a native one");
+        Check(Ids(PlanLayout(observer,Native(3),cfg,960,480,true))==std::vector<int>{2,3,4,5,6,7,8},
+              "native replacement retains the complete teammate roster after local death");
+    }
     auto duplicateRoster=Roster(7);duplicateRoster.players.push_back(duplicateRoster.players[2]);
     Player invalid;invalid.index=0;duplicateRoster.players.push_back(invalid);invalid.index=33;duplicateRoster.players.push_back(invalid);
     Check(Ids(PlanLayout(duplicateRoster,Native(3),cfg,960,480))==std::vector<int>{5,6,7,8},"duplicate or invalid roster entries cannot create extra copies");

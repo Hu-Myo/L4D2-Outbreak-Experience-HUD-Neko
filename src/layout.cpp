@@ -38,12 +38,15 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
         result.suppressed=true; result.reason="invalid_screen_size"; return result;
     }
 
-    // Identity, not name/model/character, is the key. The view target is already
-    // represented by the local-player panel when spectating.
+    const bool observingAfterDeath=snap.viewIndex!=snap.localIndex &&
+        std::any_of(snap.players.begin(),snap.players.end(),[&](const Player& p) {
+            return p.index==snap.localIndex && !p.alive;
+        });
+    // A dead survivor's camera target remains a teammate.
     std::vector<int> roster;
     for (const auto& p : snap.players) {
         if (p.index < 1 || p.index > kMaxPlayers || p.index == snap.localIndex ||
-            p.index == snap.viewIndex) continue;
+            (!observingAfterDeath && p.index == snap.viewIndex)) continue;
         roster.push_back(p.index);
     }
     std::sort(roster.begin(), roster.end());
