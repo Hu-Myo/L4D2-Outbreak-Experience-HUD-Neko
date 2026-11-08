@@ -2,7 +2,7 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[배포본 다운로드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)** · [0.1.21 공개 테스트 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/OpenTest/L4D2-Outbreak-Experience-HUD-Neko_0.1.21-public-test.zip)
+**[즉시 다운로드 — 0.1.23 최종판 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.23/L4D2-Outbreak-Experience-HUD-Neko_0.1.23-final.zip)**
 
 Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.23을 최종 배포본으로 개발을 마무리합니다.** 플레이하고 테스트해 주셔서 감사합니다.
 

@@ -2,7 +2,7 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[Release downloads](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)** · [0.1.21 Public Test ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/OpenTest/L4D2-Outbreak-Experience-HUD-Neko_0.1.21-public-test.zip)
+**[Download now — 0.1.23 Final ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.23/L4D2-Outbreak-Experience-HUD-Neko_0.1.23-final.zip)**
 
 Extra teammate HUD cards for Left 4 Dead 2 with Neko. **0.1.23 is the final planned release.** This release wraps up development. Thank you for playing and testing.
 
