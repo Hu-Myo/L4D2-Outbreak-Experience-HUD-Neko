@@ -382,6 +382,9 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
         for(const auto& player:snapshot.players)description<<player.index<<':'<<player.rawCharacter<<',';
         description<<"] characters=[";
         for(const auto& player:snapshot.players)description<<player.index<<':'<<player.character<<',';
+        description<<"] stock_model_characters=[";
+        for(const auto& player:snapshot.players)if(player.stockModelCharacter>=0)
+            description<<player.index<<':'<<player.stockModelCharacter<<',';
         description<<"] model_portraits=[";
         for(const auto& player:snapshot.players)if(player.modelPortrait.revision)
             description<<player.index<<':'<<player.modelPortrait.modelId<<':'
@@ -506,7 +509,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.23 x86: starting.");
+    Log("NekoExtraHUD 0.1.25 x86: starting.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -736,7 +739,7 @@ const char* BuildMenu() {return BuildMenu(UseKoreanMenu());}
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.23";}
+    const char* GetVersion() override{return "0.1.25";}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
     const char* RequestHudMenu(bool title) override{return title?neh::MenuLabel(neh::MenuText::Title,UseKoreanMenu()):BuildMenu();}

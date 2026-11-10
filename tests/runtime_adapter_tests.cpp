@@ -260,6 +260,47 @@ void CheckResourceAdapter() {
     const auto deadLocal=runtime.ReadSnapshot(error);
     Check(error.empty()&&deadLocal.inGame&&deadLocal.players.size()==12&&!deadLocal.players.front().alive&&g.ready,
           "local-player death does not disable snapshot updates or filter the survivor roster");
+
+    data.maxHealth[11]=0;
+    data.health[12]=-1;data.maxHealth[12]=0;data.incap[12]=255;
+    const auto transition=runtime.ReadSnapshot(error);
+    Check(transition.inGame&&transition.rosterIncomplete&&transition.players.size()==11&&
+          transition.players[9].index==10&&transition.players.back().index==12,
+          "an initializing survivor does not discard the rest of the roster during a death");
+    Check(!transition.players.back().alive&&!transition.players.back().incapacitated&&
+          transition.players.back().health==0&&transition.players.back().maxHealth==100,
+          "connected dead survivor with invalid HP and stale incap state keeps a normalized dead card");
+    Check(error.find("slot 11 m_maxHealth=0 (skipped)")!=std::string::npos&&
+          error.find("slot 12 m_iHealth=-1 (normalized dead health)")!=std::string::npos,
+          "snapshot warnings distinguish a skipped slot from normalized dead health");
+
+    data.maxHealth[11]=150;data.health[12]=0;data.incap[12]=0;
+    const auto repaired=runtime.ReadSnapshot(error);
+    Check(repaired.inGame&&!repaired.rosterIncomplete&&repaired.players.size()==12&&
+          repaired.players[10].index==11&&repaired.players[10].maxHealth==150,
+          "the previously skipped slot recovers on its next coherent snapshot");
+    g.resourceFields.maxHealth.elements=12;
+    const auto deadWithoutMaxHealth=runtime.ReadSnapshot(error);
+    Check(!deadWithoutMaxHealth.rosterIncomplete&&deadWithoutMaxHealth.players.size()==12&&
+          deadWithoutMaxHealth.players.back().maxHealth==100&&
+          error.find("slot 12 m_maxHealth=unreadable (normalized dead health)")!=std::string::npos,
+          "an unavailable HP field does not remove a coherent dead slot");
+    data.connected[12]=0;
+    const auto disconnected=runtime.ReadSnapshot(error);
+    Check(!disconnected.rosterIncomplete&&disconnected.players.size()==11&&error.empty(),
+          "a disconnected slot never retains its old dead card");
+    data.connected[12]=data.alive[12]=1;
+    const auto reused=runtime.ReadSnapshot(error);
+    Check(reused.inGame&&reused.rosterIncomplete&&reused.players.size()==11&&
+          error.find("slot 12 m_maxHealth=unreadable (skipped)")!=std::string::npos,
+          "an unreadable new occupant does not inherit the previous dead card");
+    g.resourceFields.maxHealth.elements=33;
+    data.maxHealth[12]=110;data.health[12]=90;
+    const auto joined=runtime.ReadSnapshot(error);
+    Check(error.empty()&&!joined.rosterIncomplete&&joined.players.size()==12&&
+          joined.players.back().alive&&joined.players.back().health==90&&joined.players.back().maxHealth==110,
+          "the new occupant draws only after its current resource values are readable");
+
     data.alive[1]=data.alive[12]=1;data.health[1]=data.health[12]=73;
     data.team[12]=3;
     Check(runtime.ReadSnapshot(error).players.size()==11,"snapshot excludes infected team");
@@ -693,17 +734,19 @@ void CheckPanelDiscoveryCache() {
     ResetPanelCaches();
     const auto first=runtime.ReadNativeSlots(2,error);
     Check(error.empty()&&first.size()==4&&first[0].playerIndex==2,
-          "cached native adapter reads actual target entities from current ClientPanel objects");
+          "cached native adapter reads actual target indices from current ClientPanel objects");
     enabled=0;std::memcpy(allowHud.data()+0x30,&enabled,sizeof(enabled));
     Check(runtime.TeamHudVisible(2)&&g.nativePanels.valid,
           "the Neko paint toggle does not hide the logical root or clear its discovery cache");
     Check(runtime.ReadNativeSlots(2,error).size()==4&&error.empty(),
           "native source targets stay readable while the original Neko teammate painting is disabled");
     enabled=1;std::memcpy(allowHud.data()+0x30,&enabled,sizeof(enabled));
+    entityTable[3]=nullptr;
     target(3,12);
     const auto takeover=runtime.ReadNativeSlots(2,error);
-    Check(takeover.size()==4&&takeover[0].playerIndex==12,
-          "bot takeover or target switch is not frozen in the discovery cache");
+    Check(error.empty()&&takeover.size()==4&&takeover[0].playerIndex==12&&takeover[0].bounds.w>0,
+          "an updated native target keeps its reserved bounds while its entity is unavailable");
+    entityTable[3]=reinterpret_cast<void*>(&FakeExistingEntity);
     panels.nodes[3].visible=false;
     const auto hidden=runtime.ReadNativeSlots(2,error);
     Check(hidden.size()==3,
@@ -1880,7 +1923,18 @@ void CheckModelPortraitAdapter() {
     Check(readPass().revision==0,"an unreadable studio wrapper cannot be dereferenced or cached");
     put(entity,0x934,wrapperPointer);put(entity,0x60,invalid);
     Check(readPass().revision==0,"an invalid model path fails safely even with plausible header metadata");
+    Check(ReadStockSurvivorCharacter(entity.data(),klass)==-1,"stock character lookup rejects an unreadable model pointer");
     put(entity,0x60,modelPointer);
+    put(entity,0x934,invalid);
+    path("models/survivors/survivor_mechanic.mdl");
+    Check(ReadStockSurvivorCharacter(entity.data(),klass)==3&&ReadStockSurvivorCharacter(entity.data(),botClass)==3,
+          "a stock Ellis model supplies its own character independently of Neko studio metadata");
+    path("models/survivors/survivor_biker.mdl");
+    Check(ReadStockSurvivorCharacter(entity.data(),klass)==6&&ReadStockSurvivorCharacter(entity.data(),unsupported)==-1,
+          "a stock Francis model is distinct from Ellis and only valid on survivor entity classes");
+    path("models/l4n/s/pack/survivor_biker.mdl");
+    Check(ReadStockSurvivorCharacter(entity.data(),klass)==-1,"a Neko model filename cannot reinterpret the survivor identity");
+    put(entity,0x934,wrapperPointer);
     std::string normal,incap;
     for (const auto& bad:std::array<std::string,6>{{"models/l4n/s/../x.mdl","models/l4n/s/./x.mdl",
              "models/l4n/s/a:b/x.mdl","models/l4n/s//x.mdl","models/other/pack/x.mdl","models/l4n/s/pack/x.txt"}}) {

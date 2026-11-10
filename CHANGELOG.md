@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.1.25 — The Final Final Release
+
+- L4D2 survivors keep their own portraits on maps that use the L4D1 survivor set, including mixed teams with characters from both games.
+- If a player joins while a survivor bot is dead, the other extra HUD cards stay visible while the affected slot updates.
+
+If you find a bug while playing, please include the steps to reproduce it, your HUD theme, and the number of survivors. [GitHub Issues](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/issues)
+
 ## 0.1.23 — Final release
 
 - After you die and spectate a teammate, that teammate stays eligible for an extra HUD card.

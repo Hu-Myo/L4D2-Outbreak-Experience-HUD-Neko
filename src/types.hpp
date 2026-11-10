@@ -43,6 +43,7 @@ struct Player {
     int throwable=0, medical=0, pills=0;
     ModelPortrait modelPortrait;
     int rawCharacter=-1;
+    int stockModelCharacter=-1;
 };
 struct HudSlot {
     std::uint32_t panel=0;
@@ -61,6 +62,7 @@ struct Snapshot {
     Rect selfHudBounds;
     bool hasSelfHudBounds=false;
     int survivorSet=0; // 1=L4D1, 2=L4D2, 0=unavailable or not yet initialized.
+    bool rosterIncomplete=false;
 };
 struct Placement {
     int playerIndex=0;

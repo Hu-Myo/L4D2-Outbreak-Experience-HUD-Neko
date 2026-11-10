@@ -4,11 +4,11 @@
 
 **[Download now — 0.1.23 Final ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.23/L4D2-Outbreak-Experience-HUD-Neko_0.1.23-final.zip)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. **0.1.23 is the final planned release.** This release wraps up development. Thank you for playing and testing.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. **0.1.25 is the final final release.** Thank you for playing and testing.
 
 [Patch notes](CHANGELOG.md) · [한국어 변경 사항](CHANGELOG.ko.md)
 
-In 0.1.23, the teammate you spectate after dying stays eligible for an extra HUD card. It also includes earlier improvements to downed and hanging styles in the **In-game HUD** theme, item icons, and card placement.
+In 0.1.25, L4D2 survivors keep their own portraits on maps that use the L4D1 survivor set. If someone joins while a survivor bot is dead, the other extra HUD cards stay visible while the affected slot updates.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The DLL uses the name **NekoExtraHUD**; the menu is **Extra Survivor HUD**, or **추가 생존자 HUD** in the Korean menu.
 

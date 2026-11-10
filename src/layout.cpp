@@ -60,13 +60,19 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
     for (const auto& slot : native) {
         if (!slot.visible) continue;
         std::string issue;
-        if (replaceNative) {
-            // A damaged original HUD is a sizing source only in replacement
-            // mode. Its target may be duplicated, local or outside this roster.
-            if(slot.playerIndex<1 || slot.playerIndex>kMaxPlayers)issue="native_target_out_of_range";
-            shown.insert(slot.playerIndex);
-        } else if (!std::binary_search(roster.begin(),roster.end(),slot.playerIndex)) issue="target_not_in_teammate_roster";
-        else if (!shown.insert(slot.playerIndex).second) issue="duplicate_native_target";
+        if (slot.playerIndex<1 || slot.playerIndex>kMaxPlayers) issue="native_target_out_of_range";
+        else if (!replaceNative) {
+            if (std::binary_search(roster.begin(),roster.end(),slot.playerIndex)) {
+                if (!shown.insert(slot.playerIndex).second) issue="duplicate_native_target";
+            } else if (slot.playerIndex==snap.localIndex || slot.playerIndex==snap.viewIndex) {
+                issue="target_not_in_teammate_roster";
+            } else if (cfg.debug) {
+                // During a takeover the panel can outlive its roster identity.
+                // Keep its bounds occupied without excluding a real teammate.
+                if (!result.detail.empty()) result.detail+=", ";
+                result.detail+="stale_native_target index="+std::to_string(slot.playerIndex);
+            }
+        }
         // The source supplies its visible dimensions and design, independently
         // of the new cards' lower-left screen anchor.
         auto bounds=Intersection(slot.bounds,{0,0,screenWidth,screenHeight});
@@ -84,10 +90,11 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
     // In replacement mode this statistic counts actual sizing sources, not
     // unique target IDs from a HUD whose identity mapping may be corrupted.
     result.nativeCount=static_cast<int>(replaceNative?nativeRects.size():shown.size());
-    // Custom HUDs may expose three or four teammate targets. Always subtract
-    // the actual identities; a fourth native card needs no synthetic copy.
+    // Require the usual visible panel geometry and at least one confirmed
+    // native teammate. Count only confirmed identities for the teammate cap.
     if (replaceNative?(nativeRects.empty() || nativeRects.size()>4):
-        ((singlePlayerTest && shown.size()!=3) || shown.size()<3 || shown.size()>4)) {
+        ((singlePlayerTest && (shown.size()!=3 || nativeRects.size()!=3)) || shown.empty() ||
+         nativeRects.size()<3 || nativeRects.size()>4)) {
         result.suppressed=true;
         result.reason=replaceNative?"one_to_four_native_sources_required":
             singlePlayerTest?"three_native_cards_required_for_test":"three_or_four_native_cards_required";

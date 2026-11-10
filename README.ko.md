@@ -4,11 +4,11 @@
 
 **[즉시 다운로드 — 0.1.23 최종판 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.23/L4D2-Outbreak-Experience-HUD-Neko_0.1.23-final.zip)**
 
-Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.23을 최종 배포본으로 개발을 마무리합니다.** 플레이하고 테스트해 주셔서 감사합니다.
+Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.25가 최종의 최종입니다.** 플레이하고 테스트해 주셔서 감사합니다.
 
 [한국어 변경 사항](CHANGELOG.ko.md) · [English patch notes](CHANGELOG.md)
 
-0.1.23에서는 사망 후 팀원을 관전해도 해당 팀원이 추가 HUD 표시 대상에서 빠지지 않습니다. 이전 버전의 **게임 내 HUD(In-game HUD)** 테마 다운·매달림 디자인, 아이템 아이콘, 카드 배치 개선도 포함합니다.
+0.1.25에서는 L4D1 생존자 구성을 쓰는 맵에서도 L4D2 생존자에게 각자의 초상화가 표시됩니다. 죽은 봇이 있을 때 사람이 접속해도 해당 슬롯이 갱신되는 동안 나머지 팀원의 추가 HUD가 계속 표시됩니다.
 
 Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합니다. DLL 이름은 **NekoExtraHUD**이며, 메뉴에는 **Extra Survivor HUD**, 한국어 메뉴에는 **추가 생존자 HUD**로 표시됩니다.
 

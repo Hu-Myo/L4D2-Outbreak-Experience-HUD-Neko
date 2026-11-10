@@ -788,6 +788,17 @@ int ReadSurvivorSet() {
     if (!ModelRead(g.client,offset,set) || (set!=1 && set!=2)) return 0;
     return set;
 }
+int ReadStockSurvivorCharacter(void* entity,const ClientClass& klass) {
+    const auto name=StringAt(klass.name);
+    if (name!="CTerrorPlayer" && name!="SurvivorBot") return -1;
+    void* model=nullptr;void* currentModel=nullptr;
+    char path[64]{};
+    // Use the same pinned client model pointer as the Neko portrait adapter.
+    if (!ModelRead(entity,0x60,model) ||
+        !CopyString(static_cast<const char*>(ModelAddress(model,4,sizeof(path))),path,sizeof(path)) ||
+        !ModelRead(entity,0x60,currentModel) || currentModel!=model) return -1;
+    return StockSurvivorCharacter(path);
+}
 bool ReadModelPortraitIdentity(void* entity,ModelPortraitIdentity& identity) {
     void* model=nullptr;void* wrapper=nullptr;void* header=nullptr;
     std::uint32_t prefix[3]{};int length=0,extension=0;
@@ -2048,8 +2059,6 @@ std::vector<HudSlot> Runtime::ReadNativeSlots(std::uint32_t teamRoot,std::string
             slot.visibleBounds=visual;
             slot.usesVisualBounds=true;
         }
-        void* entity=nullptr;
-        if (!Call(g.entities,3,entity,slot.playerIndex) || !entity) continue;
         result.push_back(slot);
     }
     std::sort(result.begin(),result.end(),[](const HudSlot& a,const HudSlot& b){return a.bounds.x<b.bounds.x;});
@@ -2099,29 +2108,42 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
     for (int i=1;i<=maxPlayers;++i) {
         unsigned char connected=0,alive=0,incap=0;
         int team=0,health=0,maxHealth=100;
-        if (!Array(resource,g.resourceFields.connected,i,connected) || !connected) continue;
-        if (!Array(resource,g.resourceFields.team,i,team) || !Array(resource,g.resourceFields.alive,i,alive) ||
-            !Array(resource,g.resourceFields.health,i,health) || !Array(resource,g.resourceFields.maxHealth,i,maxHealth) ||
-            !Array(resource,g.resourceFields.incap,i,incap)) {
-            error="A required resource value became unreadable; no partial roster drawn";
-            g.status=error; return {};
-        }
+        const auto sample=[&](const Field& field,const char* name,auto& value,int low,int high,bool skip=true) {
+            const bool readable=Array(resource,field,i,value);
+            if (readable && value>=low && value<=high) return true;
+            if (!error.empty()) error+="; ";
+            error+="Resource slot "+std::to_string(i)+" "+name+"=";
+            if (readable) error+=std::to_string(value);
+            else error+="unreadable";
+            error+=skip ? " (skipped)" : " (normalized dead health)";
+            if (skip) snapshot.rosterIncomplete=true;
+            return false;
+        };
+        if (!sample(g.resourceFields.connected,"m_bConnected",connected,0,1) || !connected) continue;
         void* entityBase=nullptr;
         ClientClass playerClass{};
         const PlayerFields* fields=nullptr;
+        bool hasEntityTeam=false;
         if (EntityInfo(i,entityBase,playerClass)) {
             auto it=g.playerFields.find(playerClass.table);
             if (it==g.playerFields.end()) it=g.playerFields.emplace(playerClass.table,PlayerFields(playerClass.table)).first;
             fields=&it->second;
-            int entityTeam=0;
             // A server may modify resource.m_iTeam solely to choose the three
             // stock cards. The individual entity's actual team is preferable.
-            if (Scalar(entityBase,fields->team,entityTeam) && entityTeam>=0 && entityTeam<=4) team=entityTeam;
+            hasEntityTeam=Scalar(entityBase,fields->team,team) && team>=0 && team<=4;
         }
+        if (!hasEntityTeam && !sample(g.resourceFields.team,"m_iTeam",team,0,4)) continue;
         if (team!=2) continue;
-        if (health<0 || health>100000 || maxHealth<1 || maxHealth>100000 || connected>1 || alive>1 || incap>1) {
-            error="Resource state failed range checks; no roster drawn";
-            g.status=error; return {};
+        if (!sample(g.resourceFields.alive,"m_bAlive",alive,0,1)) continue;
+        if (alive && !sample(g.resourceFields.incap,"m_isIncapacitated",incap,0,1)) continue;
+        const bool healthValid=sample(g.resourceFields.health,"m_iHealth",health,0,100000,alive!=0);
+        if (alive && !healthValid) continue;
+        const bool maxHealthValid=sample(g.resourceFields.maxHealth,"m_maxHealth",maxHealth,1,100000,alive!=0);
+        if (alive && !maxHealthValid) continue;
+        if (!alive) {
+            // Health can be reset independently of the connected survivor's death flag.
+            health=0;
+            if (!maxHealthValid) maxHealth=100;
         }
         Player player;
         player.index=i; player.name=PlayerName(i); player.alive=alive!=0;
@@ -2134,10 +2156,11 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
             unsigned char hanging=0,thirdStrike=0;
             if (Scalar(entityBase,fields->character,character)) {
                 player.rawCharacter=character;
-                player.character=NormalizeSurvivorCharacter(character,snapshot.survivorSet);
+                if (snapshot.survivorSet!=1) player.character=NormalizeSurvivorCharacter(character,snapshot.survivorSet);
+                else if (character>=0 && character<4) player.stockModelCharacter=ReadStockSurvivorCharacter(entityBase,playerClass);
             }
-            if (Scalar(entityBase,fields->hanging,hanging) && hanging<=1) player.hanging=hanging!=0;
-            if (Scalar(entityBase,fields->thirdStrike,thirdStrike) && thirdStrike<=1) player.blackWhite=thirdStrike!=0;
+            if (player.alive && Scalar(entityBase,fields->hanging,hanging) && hanging<=1) player.hanging=hanging!=0;
+            if (player.alive && Scalar(entityBase,fields->thirdStrike,thirdStrike) && thirdStrike<=1) player.blackWhite=thirdStrike!=0;
         }
         // Total HP already includes the time-decayed temporary part. Keep the
         // resource value as the fallback when no supported entity is available.
@@ -2151,6 +2174,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         if (fields) player.modelPortrait=ReadModelPortrait(entityBase,playerClass,*fields);
         snapshot.players.push_back(std::move(player));
     }
+    if (snapshot.survivorSet==1) ResolveL4d1RosterCharacters(snapshot.players);
     FinishModelPortraitPass();
     g_runtimeCounters.nativeHealthReads+=nativeHealthCount;
     g_runtimeCounters.resourceHealthReads+=resourceHealthCount;
@@ -2167,6 +2191,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
           <<" selfScan="<<g.selfDiscovery.lastResult<<" selfScanNodes="<<g.selfDiscovery.visited
           <<" health=native_total (temporary included) healthNative="<<nativeHealthCount
           <<" healthResource="<<resourceHealthCount;
+    if (!error.empty()) status<<" resource_note=["<<error<<']';
     g.status=status.str();
     return snapshot;
 }

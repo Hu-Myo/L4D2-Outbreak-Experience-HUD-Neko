@@ -2,6 +2,7 @@
 #include "hud_policy.hpp"
 #include "survivor_character.hpp"
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -180,8 +181,8 @@ void CheckSizingAndGuards() {
     }
     auto bad=Native();bad.back().playerIndex=bad.front().playerIndex;
     Check(PlanLayout(roster,bad,cfg,960,480).suppressed,"duplicate native identities still fail closed even when three unique targets remain");
-    bad=Native(3);bad.front().playerIndex=30;
-    Check(PlanLayout(roster,bad,cfg,960,480).suppressed,"native targets outside the current teammate roster still fail closed");
+    bad=Native(3);bad.front().playerIndex=kMaxPlayers+1;
+    Check(PlanLayout(roster,bad,cfg,960,480).suppressed,"native targets outside engine slot bounds still fail closed");
     bad=Native(3);bad.front().playerIndex=1;
     Check(PlanLayout(roster,bad,cfg,960,480).suppressed,"local player native panels cannot become teammate anchors");
     for(int invalid=0;invalid<4;++invalid) {
@@ -197,6 +198,35 @@ void CheckSizingAndGuards() {
     cfg.enabled=false;Check(PlanLayout(roster,{},cfg,960,480).cards.empty(),"extension off does not need native data and draws nothing");
     cfg.enabled=true;auto outside=roster;outside.inGame=false;
     Check(PlanLayout(outside,Native(3),cfg,960,480).cards.empty(),"outside a live map no cards are generated");
+}
+void CheckNativeTakeoverTransition() {
+    auto cfg=Config();cfg.debug=true;
+    auto roster=Roster(7);
+    roster.players.back().alive=false;
+    auto partial=roster;
+    partial.players.erase(partial.players.begin()+4);
+    partial.rosterIncomplete=true;
+    auto native=Native();
+    native.back().playerIndex=13;
+
+    const auto during=PlanLayout(partial,native,cfg,960,480);
+    Check(!during.suppressed&&during.nativeCount==3&&Ids(during)==std::vector<int>{6,7,8}&&
+          during.detail=="stale_native_target index=13"&&Safe(during,partial,native,960,480),
+          "a stale takeover panel reserves its bounds while three healthy supplemental identities, including a dead teammate, keep their cards");
+    const auto rosterFirst=PlanLayout(roster,native,cfg,960,480);
+    Check(Ids(rosterFirst)==std::vector<int>{5,6,7,8}&&Safe(rosterFirst,roster,native,960,480),
+          "a recovered roster can draw its additional valid identity before the native panel catches up");
+    native.back().playerIndex=5;
+    Check(Ids(PlanLayout(roster,native,cfg,960,480))==std::vector<int>{6,7,8},
+          "when the native target recovers only its own supplemental card disappears");
+
+    native=Native(3);
+    native.back().playerIndex=13;
+    Check(Ids(PlanLayout(partial,native,cfg,960,480))==std::vector<int>{4,6,7,8},
+          "a custom HUD with three panel bounds can supplement valid teammates while one target is stale");
+    for (std::size_t i=0;i<native.size();++i)native[i].playerIndex=13+static_cast<int>(i);
+    Check(PlanLayout(partial,native,cfg,960,480).suppressed,
+          "supplementation still requires a confirmed native teammate");
 }
 void CheckSinglePlayerAndIdentity() {
     auto cfg=Config();auto roster=Roster(3);const auto native=Native(3);
@@ -366,14 +396,15 @@ void CheckReplacementPolicy() {
     auto down=healthy;down.players[1].incapacitated=true;
     auto dead=healthy;dead.players[1].alive=false;
     auto hanging=healthy;hanging.players[1].hanging=true;
+    auto partial=healthy;partial.players.pop_back();partial.rosterIncomplete=true;
     Check(ObserveReplacement(unknown).reason==ReplacementReason::None&&!ObserveReplacement(unknown).healthyUnique&&
           ObserveReplacement(down).reason==ReplacementReason::None&&ObserveReplacement(dead).reason==ReplacementReason::None,
           "unknown characters and life-state changes alone do not create a replacement trigger");
     ReplacementPolicy policy;
     Check(policy.Observe(duplicate,0,100)==ReplacementReason::DuplicateCharacter,"zero is a valid root HPanel lifetime token for policy decisions");
-    for(const auto& snapshot:std::vector<Snapshot>{down,dead,hanging,unknown})
+    for(const auto& snapshot:std::vector<Snapshot>{down,dead,hanging,unknown,partial})
         Check(policy.Observe(snapshot,0,9000)==ReplacementReason::DuplicateCharacter,
-              "active replacement survives incap, death, hanging or missing character information");
+              "active replacement survives incap, death, hanging or incomplete roster information");
     Check(policy.Observe(healthy,0,10000)==ReplacementReason::DuplicateCharacter&&
           policy.Observe(healthy,0,11999)==ReplacementReason::DuplicateCharacter,
           "healthy unique recovery must remain stable for the full two-second grace period");
@@ -461,6 +492,67 @@ void CheckNormalizedCharacterPolicy() {
         Check(same&&Ids(first)==std::vector<int>{2,3,4}&&Ids(second)==std::vector<int>{2,3,4},
               "character context and down, dead or hanging state do not change real player identities or placement in either theme");
     }
+}
+void CheckL4d1RosterCharacterResolution() {
+    constexpr std::array<const char*,8> stockModels={
+        "models/survivors/survivor_gambler.mdl","models/survivors/survivor_producer.mdl",
+        "models/survivors/survivor_coach.mdl","models/survivors/survivor_mechanic.mdl",
+        "models/survivors/survivor_namvet.mdl","models/survivors/survivor_teenangst.mdl",
+        "models/survivors/survivor_biker.mdl","models/survivors/survivor_manager.mdl"
+    };
+    for(std::size_t n=0;n<stockModels.size();++n)
+        Check(StockSurvivorCharacter(stockModels[n])==static_cast<int>(n),
+              "each exact stock model identifies its canonical survivor");
+    Check(StockSurvivorCharacter("MODELS\\SURVIVORS\\Survivor_Manager.MDL")==7,
+          "stock model recognition accepts Windows separators and casing");
+    Check(StockSurvivorCharacter("models/l4n/custom/survivor_gambler.mdl")==-1&&
+          StockSurvivorCharacter("models/survivors/survivor_gambler.mdl.bak")==-1,
+          "a custom path or partial stock filename cannot establish identity");
+
+    const auto setIdentity=[](Player& player,int raw,int stock) {
+        player.rawCharacter=raw;
+        player.character=NormalizeSurvivorCharacter(raw,1);
+        player.stockModelCharacter=stock;
+    };
+    auto mixed=Roster(7);
+    mixed.survivorSet=1;
+    constexpr std::array<int,8> loggedRaw={1,3,4,5,6,0,7,2};
+    for(std::size_t n=0;n<mixed.players.size();++n) {
+        const int raw=loggedRaw[n];
+        setIdentity(mixed.players[n],raw,raw==0?-1:raw);
+    }
+    ResolveL4d1RosterCharacters(mixed.players);
+    Check(std::equal(mixed.players.begin(),mixed.players.end(),loggedRaw.begin(),
+                     [](const Player& player,int expected){return player.character==expected;})&&
+          ObserveReplacement(mixed).reason==ReplacementReason::None&&ObserveReplacement(mixed).healthyUnique,
+          "the logged eight-ID L4D1 roster retains all characters with consistent stock evidence");
+
+    auto legacy=Roster(3);
+    constexpr std::array<int,4> legacyCharacters={4,5,7,6};
+    for(std::size_t n=0;n<legacy.players.size();++n)
+        setIdentity(legacy.players[n],static_cast<int>(n),n==1?-1:legacyCharacters[n]);
+    ResolveL4d1RosterCharacters(legacy.players);
+    Check(std::equal(legacy.players.begin(),legacy.players.end(),legacyCharacters.begin(),
+                     [](const Player& player,int expected){return player.character==expected;}),
+          "an ordinary legacy roster retains Bill, Zoey, Louis, Francis in legacy order");
+
+    auto conflicting=Roster(4);
+    setIdentity(conflicting.players[0],0,0);
+    setIdentity(conflicting.players[1],1,5);
+    setIdentity(conflicting.players[2],2,-1);
+    setIdentity(conflicting.players[3],3,4);
+    setIdentity(conflicting.players[4],7,2);
+    ResolveL4d1RosterCharacters(conflicting.players);
+    constexpr std::array<int,5> expectedConflict={0,5,7,6,7};
+    Check(std::equal(conflicting.players.begin(),conflicting.players.end(),expectedConflict.begin(),
+                     [](const Player& player,int expected){return player.character==expected;}),
+          "conflicting hints retain verified identities and leave opaque or unrelated models on the legacy fallback");
+    auto opaque=Roster(1);
+    setIdentity(opaque.players[0],0,-1);
+    setIdentity(opaque.players[1],3,-1);
+    ResolveL4d1RosterCharacters(opaque.players);
+    Check(opaque.players[0].character==4&&opaque.players[1].character==6,
+          "custom models alone cannot change the established legacy fallback");
 }
 void CheckL4d1SetReplacementPolicy() {
     Check(Settings{}.replaceL4d1Team,"L4D1 teammate replacement is enabled in the default settings");
@@ -561,8 +653,8 @@ void CheckAllReplacementRosters() {
 }
 } // namespace
 int main() {
-    CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSelfHudFallback();CheckSizingAndGuards();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
-    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckL4d1SetReplacementPolicy();CheckAllReplacementRosters();
+    CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSelfHudFallback();CheckSizingAndGuards();CheckNativeTakeoverTransition();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
+    CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckL4d1RosterCharacterResolution();CheckL4d1SetReplacementPolicy();CheckAllReplacementRosters();
     std::cout<<"Layout/policy: "<<checks<<" checks passed (supplement and full replacement; lower-left first-fit).\n";
     return 0;
 }

@@ -35,7 +35,7 @@ inline ReplacementObservation ObserveReplacement(const Snapshot& snapshot) {
     // Character IDs name Nick/Rochelle/Coach/Ellis/Bill/Zoey/Francis/Louis.
     // Player nicknames and Neko model/portrait IDs never select this mode.
     out.reason=count>=9?ReplacementReason::LargeRoster:duplicate?ReplacementReason::DuplicateCharacter:ReplacementReason::None;
-    out.healthyUnique=count>0 && healthy && !duplicate && count<9;
+    out.healthyUnique=!snapshot.rosterIncomplete && count>0 && healthy && !duplicate && count<9;
     return out;
 }
 class ReplacementPolicy {
