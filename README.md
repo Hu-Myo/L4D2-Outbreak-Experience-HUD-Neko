@@ -2,7 +2,7 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[Download now — 0.1.23 Final ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.23/L4D2-Outbreak-Experience-HUD-Neko_0.1.23-final.zip)**
+**[Download now — 0.1.25 Final Final ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.25/L4D2-Outbreak-Experience-HUD-Neko_0.1.25-final.zip)**
 
 Extra teammate HUD cards for Left 4 Dead 2 with Neko. **0.1.25 is the final final release.** Thank you for playing and testing.
 
@@ -28,7 +28,7 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
 
 ### 2. Add this HUD
 
-1. Open [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases) and download the **0.1.23 Final ZIP** from the release assets. The release also lists GitHub's source archives for developers.
+1. Open [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases) and download the **0.1.25 Final Final ZIP** from the release assets. The release also lists GitHub's source archives for developers.
 2. With the game fully closed, place `NekoExtraHUD.dll` at:
 
    ```text
