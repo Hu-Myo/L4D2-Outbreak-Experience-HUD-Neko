@@ -666,6 +666,19 @@ void CheckAllReplacementRosters() {
 int main() {
     CheckIdentitiesAndCapacity();CheckFirstFitGeometry();CheckSelfHudFallback();CheckSizingAndGuards();CheckNativeTakeoverTransition();CheckSinglePlayerAndIdentity();CheckAllRosterSizes();
     CheckReplacementLayout();CheckReplacementPreservesHighNativeIds();CheckReplacementPolicy();CheckNormalizedCharacterPolicy();CheckL4d1RosterCharacterResolution();CheckL4d1SetReplacementPolicy();CheckAllReplacementRosters();
+    auto unlisted=Roster(7);unlisted.basicClient=true;
+    auto targets=Native(3);const Settings settings;
+    const auto supplement=PlanLayout(unlisted,targets,settings,960,480);
+    Check(!supplement.suppressed&&supplement.cards.size()==4&&!supplement.replacesNative,
+          "verified basic mode appends the four missing teammates and retains all native cards");
+    Check(PlanLayout(unlisted,targets,settings,960,480,true).suppressed,
+          "an unlisted client cannot request replacement of native cards");
+    targets[0].playerIndex=20;
+    Check(PlanLayout(unlisted,targets,settings,960,480).suppressed,
+          "a missing native teammate identity suppresses basic mode");
+    targets=Native(3);unlisted.rosterIncomplete=true;
+    Check(PlanLayout(unlisted,targets,settings,960,480).suppressed,
+          "an incomplete roster suppresses basic mode");
     std::cout<<"Layout/policy: "<<checks<<" checks passed (supplement and full replacement; lower-left first-fit).\n";
     return 0;
 }

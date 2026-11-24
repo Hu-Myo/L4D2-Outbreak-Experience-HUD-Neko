@@ -4,7 +4,9 @@
 
 **[Download the latest release ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest)**
 
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. Version **0.1.28** supports Steam build `26770911`. It includes [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko) compatibility so that L4D2 survivors added to L4D1 campaigns use their own in-game teammate portraits.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. Version **0.1.29** adds a basic display mode for new client builds that pass the roster, teammate panel and drawing checks. In basic mode the stock HUD stays visible and added cards use a simple style. Verified clients retain Game HUD theme and portrait support.
+
+The plugin supports [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko), including portraits for L4D2 survivors added to L4D1 campaigns on verified clients.
 
 [Patch notes](CHANGELOG.md) · [한국어 변경 사항](CHANGELOG.ko.md)
 

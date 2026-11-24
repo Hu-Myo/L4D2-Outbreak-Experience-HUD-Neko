@@ -27,7 +27,7 @@
 
 namespace {
 constexpr char kSupportedHash[] = "f6f80f514088deb8ccfdecd7cd9c2eb9b43fedafd7c529eb1fc9f7300c0d2b50";
-constexpr char kPluginVersion[] = "0.1.28";
+constexpr char kPluginVersion[] = "0.1.29";
 constexpr char kSupportedSurfaceHash[] = "3f2e2d74b3934a482caa8c3d5aa8d1157e04d719185b019ffaa1f9f7b4bb1d58";
 constexpr char kSupportedVguiHash[] = "3188733e5cb87a2c72e616160e7c5298da065dcaa3248021f4abd5694eb701c1";
 constexpr char kSupportedMaterialHash[] = "09fd324cd977d5d4e2a216ee831c07ff8b882efd024137c27de4155fbdfcf0ba";
@@ -331,11 +331,12 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
     mark=profile?PerfNow():0;
     neh::g_drawTrace.stage="runtime.snapshot";
     auto& snapshot=frame.snapshot;snapshot=g_runtime.ReadSnapshot(snapshotError);
+    if(snapshot.basicClient) frame.settings.theme=neh::HudTheme::Current;
     if(profile)RecordPerf(PerfStage::Snapshot,mark);
     mark=profile?PerfNow():0;
     int width=0,height=0; g_runtime.ScreenSize(width,height);
     neh::g_drawTrace.stage="layout";
-    frame.nativePaintValid=g_runtime.ReadNativeHudPaintState(panel,frame.nativePaint);
+    frame.nativePaintValid=!snapshot.basicClient && g_runtime.ReadNativeHudPaintState(panel,frame.nativePaint);
     if(frame.nativePaintValid && snapshot.inGame) {
         g_policyUsed=true;
         frame.reason=g_replacementPolicy.Observe(snapshot,frame.nativePaint.rootHandle,now,settings.replaceL4d1Team);
@@ -367,6 +368,7 @@ void PrepareExtras(std::uint32_t panel,PreparedFrame& frame,DWORD now) {
         for(const auto& slot:slots)if(slot.visible)description<<slot.playerIndex<<',';
         description<<"] extras=[";for(const auto& card:layout.cards)description<<card.playerIndex<<':'<<card.row<<',';
         description<<"] hidden="<<layout.hiddenOverflow<<" overflow="<<settings.overflow;
+        if(snapshot.basicClient)description<<" client_mode=basic";
         description<<" theme="<<(settings.theme==neh::HudTheme::GameHud?"game_hud":"current");
         description<<" single_player_test="<<settings.singlePlayerTest;
         description<<" replace_l4d1_team="<<settings.replaceL4d1Team;
@@ -495,16 +497,22 @@ void __fastcall PaintHook(void* self,void*,std::uint32_t panel,bool force,bool a
     if(profile)g_perf.stages[static_cast<unsigned>(PerfStage::Total)].Add(pluginTicks+PerfNow()-renderStarted);
     MaybeLogPerf(GetTickCount());
 }
-bool InstallHook() {
+bool InstallHook(bool basicClient) {
     auto panel=g_runtime.PanelInterface(); if(!panel)return false;
     auto slot=&(*reinterpret_cast<void***>(panel))[kPaintTraverseSlot];
+    auto original=*slot;
+    const bool stockForwarder=reinterpret_cast<std::uintptr_t>(original)==
+        reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"vgui2.dll"))+0x1ebe0u;
+    if(basicClient && !stockForwarder)return false;
     DWORD old=0;
     if(!VirtualProtect(slot,sizeof(void*),PAGE_READWRITE,&old))return false;
-    g_original=reinterpret_cast<PaintFn>(*slot); g_hookSlot=slot;
-    g_nativeSkipSupported.store(reinterpret_cast<std::uintptr_t>(g_original)==
-        reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"vgui2.dll"))+0x1ebe0u,std::memory_order_release);
-    InterlockedExchangePointer(reinterpret_cast<void* volatile*>(slot),reinterpret_cast<void*>(&PaintHook));
+    g_original=reinterpret_cast<PaintFn>(original);
+    g_nativeSkipSupported.store(!basicClient && stockForwarder,std::memory_order_release);
+    const bool installed=InterlockedCompareExchangePointer(reinterpret_cast<void* volatile*>(slot),
+        reinterpret_cast<void*>(&PaintHook),original)==original;
     DWORD ignored=0; VirtualProtect(slot,sizeof(void*),old,&ignored);
+    if(!installed)return false;
+    g_hookSlot=slot;
     g_hooked.store(true); return true;
 }
 DWORD WINAPI InitializeWorker(void*) {
@@ -530,10 +538,6 @@ DWORD WINAPI InitializeWorker(void*) {
             const auto clientHash=FileHash(clientFile);
             Log("client SHA256="+clientHash);
             const auto* clientBuild=neh::FindClientHudBuild(clientHash);
-            if(!clientBuild) {
-                Log("unsupported client build: no native hook installed. This build requires a verified L4D2 client DLL.");
-                return 0;
-            }
             wchar_t surfaceFile[32768]{};
             GetModuleFileNameW(surface,surfaceFile,32768);
             const auto surfaceHash=FileHash(surfaceFile);
@@ -551,14 +555,19 @@ DWORD WINAPI InitializeWorker(void*) {
                 return 0;
             }
             std::string error;
-            if(g_runtime.Initialize(error,*clientBuild)) {
+            const auto initialized=g_runtime.Initialize(error,clientBuild);
+            if(initialized==neh::Initialization::Unsupported) {
+                Log(error+"; no native hook installed.");
+                return 0;
+            }
+            if(initialized==neh::Initialization::Ready) {
                 // This optional interface is used only to load one portrait
                 // for an already-applied Neko model. Other HUD paths retain
                 // their existing four-module profile when it is unavailable.
                 void* materials=nullptr;
                 const auto materialModule=GetModuleHandleW(L"materialsystem.dll");
                 wchar_t materialFile[32768]{};
-                if(materialModule && GetModuleFileNameW(materialModule,materialFile,32768)) {
+                if(clientBuild && materialModule && GetModuleFileNameW(materialModule,materialFile,32768)) {
                     const auto materialHash=FileHash(materialFile);
                     Log("materialsystem SHA256="+materialHash);
                     if(materialHash==kSupportedMaterialHash) {
@@ -567,13 +576,14 @@ DWORD WINAPI InitializeWorker(void*) {
                         if(factory)materials=factory("VMaterialSystem080",nullptr);
                     }
                 }
-                Log(materials?"Neko portrait material loading: supported; automatic with applied model":
-                              "Neko portrait material loading: unavailable; existing loaded textures only");
+                if(clientBuild)Log(materials?"Neko portrait material loading: supported; automatic with applied model":
+                                            "Neko portrait material loading: unavailable; existing loaded textures only");
                 g_renderer.Initialize(g_runtime.SurfaceInterface(),materials);
-                if(InstallHook()) {
+                if(InstallHook(!clientBuild)) {
                     Log("hook installed; waiting for visible CHudTeamDisplay and validated teammate targets.");
-                    Log(g_nativeSkipSupported.load()?"automatic native replacement: supported PaintTraverse forwarder":
-                        "automatic native replacement: original forwarder changed; suppression unavailable");
+                    if(clientBuild)Log(g_nativeSkipSupported.load()?"automatic native replacement: supported PaintTraverse forwarder":
+                                     "automatic native replacement: original forwarder changed; suppression unavailable");
+                    else Log("Unlisted client: verified basic HUD mode; original HUD painting stays enabled.");
                     return 0;
                 }
                 Log("cannot install UI hook"); return 0;

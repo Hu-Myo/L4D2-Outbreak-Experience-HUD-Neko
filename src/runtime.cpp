@@ -33,7 +33,7 @@ constexpr int pos=3,size=5,absPos=10,clipRect=11,inset=13,visible=15,childCount=
               getPanel=55;
 }
 // This game's IClientNetworkable omits the Release method present in the old
-// public header. The plugin checks the client hash before initializing here.
+// public header. Unlisted clients must confirm the leaf accessor code below.
 namespace ni { constexpr int clientClass=1, dataTableBase=10; }
 
 // Query metadata is a hint within one UI read pass, never a cached object,
@@ -203,17 +203,20 @@ static_assert(sizeof(RecvProp)==60 && offsetof(RecvProp, offset)==44, "x86 RecvP
 
 struct Field {
     int offset=-1, stride=0, elements=0;
+    int type=-1;
     bool Valid() const { return offset>=0 && offset<0x20000; }
 };
-Field FindField(void* tablePointer, const char* target, int base=0, int depth=0) {
-    if (!tablePointer || depth>16) return {};
+Field FindFieldBounded(void* tablePointer, const char* target, int base, int depth, int& remaining) {
+    if (!tablePointer || depth>16 || remaining--<=0) return {};
     RecvTable table{};
     if (!Read(tablePointer, table) || table.count<0 || table.count>4096 || !Readable(table.props, sizeof(RecvProp)*table.count)) return {};
     for (int i=0; i<table.count; ++i) {
         RecvProp prop{};
         if (!Read(Add(table.props, i*sizeof(RecvProp)), prop) || prop.offset<0 || prop.offset>0x20000) continue;
         if (StringAt(prop.name)==target) {
-            Field result{base+prop.offset, prop.stride, prop.elements};
+            Field result{base+prop.offset, prop.stride, prop.elements, prop.type};
+            RecvProp element{};
+            if (prop.type==5 && Read(prop.arrayProp,element)) result.type=element.type;
             RecvTable children{};
             // RecvPropArray3 exposes numeric children (000,001,...). Derive
             // the actual in-memory element stride, including one-byte bools.
@@ -225,6 +228,7 @@ Field FindField(void* tablePointer, const char* target, int base=0, int depth=0)
                     result.offset += first.offset;
                     result.stride = second.offset-first.offset;
                     result.elements = children.count;
+                    result.type = first.type==second.type ? first.type : -1;
                 }
             }
             return result;
@@ -233,10 +237,14 @@ Field FindField(void* tablePointer, const char* target, int base=0, int depth=0)
     for (int i=0; i<table.count; ++i) {
         RecvProp prop{};
         if (!Read(Add(table.props,i*sizeof(RecvProp)),prop) || !prop.dataTable || prop.offset<0 || prop.offset>0x20000) continue;
-        auto result = FindField(prop.dataTable,target,base+prop.offset,depth+1);
+        auto result = FindFieldBounded(prop.dataTable,target,base+prop.offset,depth+1,remaining);
         if (result.Valid()) return result;
     }
     return {};
+}
+Field FindField(void* tablePointer,const char* target) {
+    int remaining=128;
+    return FindFieldBounded(tablePointer,target,0,0,remaining);
 }
 template<class T> bool Scalar(void* base, const Field& field, T& value) {
     return base && field.Valid() && Read(Add(base,field.offset),value);
@@ -257,6 +265,15 @@ struct ResourceFields {
         grenade=FindField(table,"m_grenade"); medical=FindField(table,"m_firstAidSlot"); pills=FindField(table,"m_pillsSlot");
     }
     bool Valid() const { return connected.Valid()&&team.Valid()&&alive.Valid()&&health.Valid()&&maxHealth.Valid()&&incap.Valid(); }
+    static bool IntArray(const Field& field,int stride,int maxPlayers) {
+        return field.Valid() && field.type==0 && field.stride==stride &&
+               field.elements>maxPlayers && field.elements<=129;
+    }
+    bool ValidForBasicRoster(int maxPlayers) const {
+        return IntArray(connected,1,maxPlayers) && IntArray(team,4,maxPlayers) &&
+               IntArray(alive,1,maxPlayers) && IntArray(health,4,maxPlayers) &&
+               IntArray(maxHealth,4,maxPlayers) && IntArray(incap,1,maxPlayers);
+    }
     std::string Missing() const {
         const Field* fields[]={&connected,&team,&alive,&health,&maxHealth,&incap};
         const char* names[]={"m_bConnected","m_iTeam","m_bAlive","m_iHealth","m_maxHealth","m_isIncapacitated"};
@@ -406,6 +423,16 @@ struct ModelPortraitCache {
 };
 // Kept outside State so cache/map resets cannot recycle a renderer cache key.
 std::uint64_t g_modelPortraitRevision=0;
+struct BasicClient {
+    std::uintptr_t base=0;
+    std::size_t imageSize=0;
+    int teammateOffset=-1;
+
+    bool Contains(const void* address,std::size_t size) const {
+        const auto value=reinterpret_cast<std::uintptr_t>(address);
+        return base && value>=base && size<=imageSize && value-base<=imageSize-size;
+    }
+};
 struct State {
     void* engine=nullptr;
     void* entities=nullptr;
@@ -416,7 +443,8 @@ struct State {
     void* schemeManager=nullptr;
     HMODULE neko=nullptr;
     HMODULE client=nullptr,vguiModule=nullptr;
-    ClientHudBuild clientBuild=kPreviousClientBuild;
+    const ClientHudBuild* clientBuild=&kPreviousClientBuild;
+    BasicClient basic;
     bool ready=false;
     int resourceIndex=-1;
     void* resourceTable=nullptr;
@@ -754,10 +782,89 @@ void* ClientPanel(std::uint32_t panel) {
     if (!Call(g.panel,pi::getPanel,object,panel,"ClientDLL") || !Readable(object,sizeof(void*))) return nullptr;
     return object;
 }
+template<std::size_t Size>
+bool HasClientCode(const BasicClient& client,void* entry,const std::array<unsigned char,Size>& expected) {
+    std::array<unsigned char,Size> code{};
+    return client.Contains(entry,code.size()) && Executable(entry) && Read(entry,code) && code==expected;
+}
+bool DiscoverBasicClient(HMODULE module,void* entities,BasicClient& output) {
+    const auto* base=reinterpret_cast<const unsigned char*>(module);
+    IMAGE_DOS_HEADER dos{};
+    IMAGE_NT_HEADERS32 nt{};
+    if (!Read(base,dos) || dos.e_magic!=IMAGE_DOS_SIGNATURE ||
+        dos.e_lfanew<static_cast<LONG>(sizeof(dos)) || dos.e_lfanew>1024*1024 ||
+        !Read(base+dos.e_lfanew,nt) || nt.Signature!=IMAGE_NT_SIGNATURE ||
+        nt.FileHeader.Machine!=IMAGE_FILE_MACHINE_I386 ||
+        nt.FileHeader.SizeOfOptionalHeader!=sizeof(nt.OptionalHeader) ||
+        nt.OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
+        !nt.FileHeader.NumberOfSections || nt.FileHeader.NumberOfSections>32 ||
+        nt.OptionalHeader.SizeOfImage>128u*1024u*1024u) return false;
+    BasicClient client{reinterpret_cast<std::uintptr_t>(base),nt.OptionalHeader.SizeOfImage,-1};
+    if (!client.Contains(entities,0x30) ||
+        !HasClientCode(client,Method(entities,0),kEntityAtIndexCode) ||
+        !HasClientCode(client,Method(entities,6),kHighestEntityCode)) return false;
+
+    const auto* sections=base+dos.e_lfanew+sizeof(nt);
+    if (!client.Contains(sections,nt.FileHeader.NumberOfSections*sizeof(IMAGE_SECTION_HEADER))) return false;
+    for (unsigned i=0;i<nt.FileHeader.NumberOfSections;++i) {
+        IMAGE_SECTION_HEADER section{};
+        if (!Read(sections+i*sizeof(section),section)) return false;
+        if (std::memcmp(section.Name,".text",6)!=0) continue;
+        const auto size=section.Misc.VirtualSize;
+        if (!(section.Characteristics&IMAGE_SCN_MEM_EXECUTE) || size>32u*1024u*1024u ||
+            section.VirtualAddress>=client.imageSize ||
+            !client.Contains(base+section.VirtualAddress,size)) return false;
+        std::vector<unsigned char> code(size);
+        if (!CopyBytes(base+section.VirtualAddress,code.data(),code.size())) return false;
+        client.teammateOffset=FindNativeTeammateOffset(code.data(),code.size());
+        if (client.teammateOffset<0) return false;
+        output=client;
+        return true;
+    }
+    return false;
+}
+bool BasicEntityInfo(int index,void*& base,ClientClass& klass) {
+    if (index<0 || index>0x7ff) return false;
+    void* networkable=nullptr;
+    const auto& client=g.basic;
+    const auto* slot=Add(g.entities,0x28+index*8);
+    if (!client.Contains(slot,sizeof(networkable)) || !Read(slot,networkable) || !networkable ||
+        !HasClientCode(client,Method(networkable,ni::dataTableBase),kDataTableBaseCode)) return false;
+    const auto* getter=static_cast<const unsigned char*>(Method(networkable,ni::clientClass));
+    std::array<unsigned char,6> code{};
+    if (!client.Contains(getter,code.size()) || !Read(getter,code) || code[0]!=0xb8 || code[5]!=0xc3) return false;
+    const void* record=nullptr;
+    std::memcpy(&record,code.data()+1,sizeof(record));
+    RecvTable table{};
+    if (!client.Contains(record,sizeof(klass)) || !Read(record,klass) ||
+        !client.Contains(klass.name,1) || !client.Contains(klass.table,sizeof(table)) || !Read(klass.table,table) ||
+        !client.Contains(table.name,1) || table.count<=0 || table.count>4096 ||
+        !client.Contains(table.props,sizeof(RecvProp)*table.count) || StringAt(table.name).rfind("DT_",0)!=0) return false;
+    base=const_cast<unsigned char*>(Add(networkable,-8));
+    return Readable(base,4);
+}
+bool BasicTeammateIndex(void* object,int& result) {
+    // IPanel returns the Panel subobject. The native accessor uses the
+    // complete object, so recover the subobject adjustment through MSVC RTTI.
+    struct Locator {unsigned signature,offset,constructorOffset;const void* type;const void* hierarchy;};
+    const auto& client=g.basic;
+    void* table=nullptr;
+    const void* locator=nullptr;
+    Locator info{};
+    if (!Read(object,table) || !client.Contains(table,sizeof(void*)) ||
+        !client.Contains(Add(table,-4),4) || !Read(Add(table,-4),locator) ||
+        !client.Contains(locator,sizeof(info)) || !Read(locator,info) ||
+        info.signature!=0 || info.constructorOffset!=0 || info.offset>0x100 || info.offset%4 ||
+        !client.Contains(info.type,9) || !client.Contains(info.hierarchy,4) ||
+        StringAt(reinterpret_cast<const char*>(Add(info.type,8)))!=".?AVTeamDisplayPlayer@@") return false;
+    return g.basic.teammateOffset>=static_cast<int>(info.offset) &&
+           Read(Add(object,g.basic.teammateOffset-static_cast<int>(info.offset)),result);
+}
 bool EntityInfo(int index, void*& base, ClientClass& klass) {
     void* networkable=nullptr;
     void* classPointer=nullptr;
     base=nullptr;
+    if (!g.clientBuild) return BasicEntityInfo(index,base,klass);
     if (!Call(g.entities,0,networkable,index) || !networkable ||
         !Call(networkable,ni::clientClass,classPointer) || !Read(classPointer,klass) ||
         !klass.table || !Call(networkable,ni::dataTableBase,base) || !Readable(base,4)) return false;
@@ -946,7 +1053,8 @@ bool Resource(void*& base) {
     if (static_cast<LONG>(now-g.nextResourceScan)<0) return false;
     g.nextResourceScan=now+1000;
     int highest=0;
-    if (!Call(g.entities,6,highest) || highest<1 || highest>8192) {
+    const bool foundHighest=g.clientBuild ? Call(g.entities,6,highest) : Read(Add(g.entities,0x24),highest);
+    if (!foundHighest || highest<1 || highest>(g.clientBuild?8192:0x7ff)) {
         g.resourceError="CTerrorPlayerResource scan unavailable: invalid highest entity index";
         return false;
     }
@@ -1323,7 +1431,7 @@ bool CharacterIncapMaterial(std::string material) {
 }
 bool ThemeHealth(void* object,ThemeCapturePass& pass,ThemeHealthBar& bar) {
     unsigned char material=0;
-    if (!ThemeObject(object,g.client,g.clientBuild.healthPanelVtable) ||
+    if (!ThemeObject(object,g.client,g.clientBuild->healthPanelVtable) ||
         !Read(Add(object,0x17f),material) || material>1) return false;
     bar.present=true;bar.newMaterial=material!=0;bar.palette=pass.palette;bar.mediumThreshold=pass.medium;
     Color monochrome{0,0,0,0};
@@ -1367,7 +1475,7 @@ bool DecodeThemeIcon(const void* texture,ThemeCapturePass& pass,ThemeIcon& icon)
 }
 bool ThemeInventoryIcon(void* object,int kind,int item,ThemeCapturePass& pass,ThemeIcon& icon) {
     void* texture=nullptr;unsigned char scale=0;
-    if (item<=0 || !ThemeObject(object,g.client,g.clientBuild.iconPanelVtable) || !Read(Add(object,0x150),texture) ||
+    if (item<=0 || !ThemeObject(object,g.client,g.clientBuild->iconPanelVtable) || !Read(Add(object,0x150),texture) ||
         !Read(Add(object,0x1d4),scale) || scale>1 || !ThemeColor(object,0x1d6,icon.color)) return false;
     icon.kind=kind;icon.item=item;icon.scale=scale!=0;icon.color=ThemeAlpha(object,icon.color);
     return DecodeThemeIcon(texture,pass,icon);
@@ -1431,8 +1539,8 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
         if (role<0 && !decoration) continue;
         void* object=ClientPanel(panel);ThemeWidget widget;Rect raw,visible;bool shown=false;
         const int vtable=role==0 || decoration?0x65d98c:
-                         role==4?g.clientBuild.healthPanelVtable:
-                         role>=6?g.clientBuild.iconPanelVtable:0x65dfdc;
+                         role==4?g.clientBuild->healthPanelVtable:
+                         role>=6?g.clientBuild->iconPanelVtable:0x65dfdc;
         const int sourceItem=role==6?player.throwable:role==7?player.medical:role==8?player.pills:0;
         if (!ThemeObject(object,g.client,vtable) ||
             !ThemeWidgetFor(panel,object,container,static_cast<int>(order),widget,raw,visible,shown,role>=6)) continue;
@@ -1959,8 +2067,8 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
 
 void AbortMemoryQueries() { g_memoryQueries.Abort(); }
 
-bool Runtime::Initialize(std::string& error,const ClientHudBuild& build) {
-    if (g.ready) return true;
+Initialization Runtime::Initialize(std::string& error,const ClientHudBuild* build) {
+    if (g.ready) return Initialization::Ready;
     g.clientBuild=build;
     g.engine=Create(GetModuleHandleW(L"engine.dll"),"VEngineClient013");
     g.entities=Create(GetModuleHandleW(L"client.dll"),"VClientEntityList003");
@@ -1975,7 +2083,7 @@ bool Runtime::Initialize(std::string& error,const ClientHudBuild& build) {
     if (!g.ready) {
         error="Waiting for engine013 / entitylist003 / panel009 / ivgui008 / surface031 / Neko modules";
         g.status=error;
-        return false;
+        return Initialization::Waiting;
     }
     // Do not call speculative virtual functions to test a version. The exact
     // interface names and Neko hash are checked by the plugin before this point.
@@ -1984,11 +2092,17 @@ bool Runtime::Initialize(std::string& error,const ClientHudBuild& build) {
         g.ready=false;
         error="Interface function pointers are not executable; adapter disabled";
         g.status=error;
-        return false;
+        return Initialization::Unsupported;
+    }
+    if (!build && !DiscoverBasicClient(g.client,g.entities,g.basic)) {
+        g.ready=false;
+        error="Unlisted client: entity and teammate HUD anchors could not be verified";
+        g.status=error;
+        return Initialization::Unsupported;
     }
     error.clear();
     g.status="Interfaces acquired; waiting for a map and native HUD";
-    return true;
+    return Initialization::Ready;
 }
 bool Runtime::Ready() const { return g.ready; }
 void* Runtime::PanelInterface() const { return g.panel; }
@@ -2012,7 +2126,7 @@ bool Runtime::ReadNativeHudPaintState(std::uint32_t panel,NativeHudPaintState& s
     MemoryQueryScope memoryQueries;
     state={};
     SafePanel root;
-    if (!g.ready || !g.neko || !CaptureSafePanel(panel,root) || !ResolveSafePanel(root) ||
+    if (!g.ready || !g.clientBuild || !g.neko || !CaptureSafePanel(panel,root) || !ResolveSafePanel(root) ||
         PanelString(panel,pi::className)!="CHudTeamDisplay") return false;
     void* object=ClientPanel(panel);void** table=nullptr;void* paint=nullptr;
     if (!object || !Read(object,table) ||
@@ -2048,7 +2162,8 @@ std::vector<HudSlot> Runtime::ReadNativeSlots(std::uint32_t teamRoot,std::string
         slot.visible=Visible(panel);
         if (!slot.visible) continue;
         void* object=ClientPanel(panel);
-        if (!object || !Read(Add(object,0x264),slot.playerIndex)) {
+        if (!object || !(g.clientBuild ? Read(Add(object,0x264),slot.playerIndex) :
+                                        BasicTeammateIndex(object,slot.playerIndex))) {
             error="Cannot read native TeamDisplayPlayer target; drawing suppressed";
             return {};
         }
@@ -2093,7 +2208,13 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         error=g.resourceError;
         g.status=error; return {};
     }
-    snapshot.survivorSet=ReadSurvivorSet();
+    snapshot.basicClient=!g.clientBuild;
+    if (snapshot.basicClient && !g.resourceFields.ValidForBasicRoster(maxPlayers)) {
+        error="Unlisted client: survivor resource arrays could not be verified";
+        g.status=error;
+        return {};
+    }
+    if (!snapshot.basicClient) snapshot.survivorSet=ReadSurvivorSet();
     snapshot.viewIndex=snapshot.localIndex;
     void* localBase=nullptr;
     ClientClass localClass{};
@@ -2109,7 +2230,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         }
     }
     int nativeHealthCount=0,resourceHealthCount=0;
-    BeginModelPortraitPass();
+    if (!snapshot.basicClient) BeginModelPortraitPass();
     for (int i=1;i<=maxPlayers;++i) {
         unsigned char connected=0,alive=0,incap=0;
         int team=0,health=0,maxHealth=100;
@@ -2153,13 +2274,18 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         Player player;
         player.index=i; player.name=PlayerName(i); player.alive=alive!=0;
         player.incapacitated=incap!=0; player.health=health; player.maxHealth=maxHealth;
-        Array(resource,g.resourceFields.grenade,i,player.throwable);
-        Array(resource,g.resourceFields.medical,i,player.medical);
-        Array(resource,g.resourceFields.pills,i,player.pills);
+        const auto item=[&](const Field& field,int& value) {
+            if (!snapshot.basicClient || ResourceFields::IntArray(field,4,maxPlayers)) {
+                Array(resource,field,i,value);
+            }
+        };
+        item(g.resourceFields.grenade,player.throwable);
+        item(g.resourceFields.medical,player.medical);
+        item(g.resourceFields.pills,player.pills);
         if (fields) {
             int character=-1;
             unsigned char hanging=0,thirdStrike=0;
-            if (Scalar(entityBase,fields->character,character)) {
+            if (!snapshot.basicClient && Scalar(entityBase,fields->character,character)) {
                 player.rawCharacter=character;
                 if (snapshot.survivorSet!=1) player.character=NormalizeSurvivorCharacter(character,snapshot.survivorSet);
                 else if (character>=0 && character<8) player.stockModelCharacter=ReadStockSurvivorCharacter(entityBase,playerClass);
@@ -2170,22 +2296,25 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
         // Total HP already includes the time-decayed temporary part. Keep the
         // resource value as the fallback when no supported entity is available.
         int permanent=0,total=0;
-        if (player.alive && fields && ReadSurvivorHealth(entityBase,playerClass,*fields,permanent,total)) {
+        if (!snapshot.basicClient && player.alive && fields &&
+            ReadSurvivorHealth(entityBase,playerClass,*fields,permanent,total)) {
             ++nativeHealthCount;
             player.health=player.incapacitated || player.hanging ? permanent : total;
             if (!player.incapacitated && !player.hanging) player.temporaryHealth=static_cast<float>(total-permanent);
         } else ++resourceHealthCount;
         if (player.temporaryHealth>0) ++g_runtimeCounters.temporaryHealthSamples;
-        if (fields) player.modelPortrait=ReadModelPortrait(entityBase,playerClass,*fields);
+        if (!snapshot.basicClient && fields) player.modelPortrait=ReadModelPortrait(entityBase,playerClass,*fields);
         snapshot.players.push_back(std::move(player));
     }
     if (snapshot.survivorSet==1) ResolveL4d1RosterCharacters(snapshot.players);
-    FinishModelPortraitPass();
+    if (!snapshot.basicClient) FinishModelPortraitPass();
     g_runtimeCounters.nativeHealthReads+=nativeHealthCount;
     g_runtimeCounters.resourceHealthReads+=resourceHealthCount;
-    int selfWidth=0,selfHeight=0;ScreenSize(selfWidth,selfHeight);
-    snapshot.hasSelfHudBounds=SelfDiscoveryStep(RootPanel(),g.nativePanels.root,selfWidth,selfHeight,
-                                               snapshot.viewIndex,GetTickCount(),snapshot.selfHudBounds);
+    if (!snapshot.basicClient) {
+        int selfWidth=0,selfHeight=0;ScreenSize(selfWidth,selfHeight);
+        snapshot.hasSelfHudBounds=SelfDiscoveryStep(RootPanel(),g.nativePanels.root,selfWidth,selfHeight,
+                                                   snapshot.viewIndex,GetTickCount(),snapshot.selfHudBounds);
+    }
     snapshot.inGame=true;
     std::ostringstream status;
     status<<"resource entity="<<g.resourceIndex<<" survivors="<<snapshot.players.size()
@@ -2194,7 +2323,8 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
           <<" selfHud="<<(snapshot.hasSelfHudBounds?"yes":"unavailable")
           <<" selfHudSource="<<(g.selfPanelIsNamed?"named_local_player":snapshot.hasSelfHudBounds?"verified_target":"none")
           <<" selfScan="<<g.selfDiscovery.lastResult<<" selfScanNodes="<<g.selfDiscovery.visited
-          <<" health=native_total (temporary included) healthNative="<<nativeHealthCount
+          <<" health="<<(snapshot.basicClient?"player_resource":"native_total (temporary included)")
+          <<" healthNative="<<nativeHealthCount
           <<" healthResource="<<resourceHealthCount;
     if (!error.empty()) status<<" resource_note=["<<error<<']';
     g.status=status.str();
@@ -2221,7 +2351,7 @@ bool Runtime::NeedsGameHudThemePreload() {
     return true;
 }
 const ThemeIcon* Runtime::ReadGameHudItemIcon(int item) {
-    return GameHudItemIconStep(item,GetTickCount());
+    return g.clientBuild ? GameHudItemIconStep(item,GetTickCount()) : nullptr;
 }
 std::string Runtime::Diagnostics() const { return g.status; }
 } // namespace neh

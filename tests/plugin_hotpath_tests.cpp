@@ -71,7 +71,9 @@ void EnableReplacementFixture(unsigned count=9) {
 // test executable. Menu/settings tests use a unique temporary INI only.
 namespace neh {
 void AbortMemoryQueries(){}
-bool Runtime::Initialize(std::string&,const ClientHudBuild&){++g_mock.calls;return g_mock.ready;}
+Initialization Runtime::Initialize(std::string&,const ClientHudBuild*){
+    ++g_mock.calls;return g_mock.ready?Initialization::Ready:Initialization::Waiting;
+}
 bool Runtime::Ready()const{++g_mock.calls;return g_mock.ready;}
 void* Runtime::PanelInterface()const{++g_mock.calls;return nullptr;}
 void* Runtime::SurfaceInterface()const{++g_mock.calls;return g_mock.surfaceReady?&g_surface:nullptr;}
@@ -133,6 +135,12 @@ void CheckAutomaticReplacementHook() {
           "a healthy unique roster preserves native painting and renders only its normal additions");
     Check(g_mock.events==std::vector<std::string>{"native","snapshot","paint_state","layout","original","push","draw","pop"},
           "normal root preparation runs once before original painting and rendering uses a balanced context afterward");
+
+    EnableReplacementFixture(9);
+    auto basicSettings=CurrentSettings();basicSettings.theme=neh::HudTheme::GameHud;PublishSettings(basicSettings);
+    g_mock.snapshot.basicClient=true;Paint(g_mock.root);
+    Check(g_originalCalls==1&&g_mock.draws==1&&!g_mock.renderedReplacement&&g_mock.stateReads==0&&g_mock.themeReads==0,
+          "unlisted client appends basic cards with no native theme or suppression probes");
 
     EnableReplacementFixture(4);g_mock.snapshot.survivorSet=1;Paint(g_mock.root);
     Check(g_originalCalls==0&&g_mock.draws==1&&g_mock.renderedReplacement,

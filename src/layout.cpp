@@ -51,7 +51,10 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
     }
     std::sort(roster.begin(), roster.end());
     roster.erase(std::unique(roster.begin(), roster.end()), roster.end());
-    const bool singlePlayerTest=!replaceNative && cfg.singlePlayerTest && roster.size()==3;
+    if (snap.basicClient && (replaceNative || snap.rosterIncomplete)) {
+        result.suppressed=true; result.reason="basic_roster_unverified"; return result;
+    }
+    const bool singlePlayerTest=!snap.basicClient && !replaceNative && cfg.singlePlayerTest && roster.size()==3;
     if (roster.empty()) { result.reason="no_extra_teammates"; return result; }
 
     std::set<int> shown;
@@ -64,7 +67,7 @@ Layout PlanLayout(const Snapshot& snap, const std::vector<HudSlot>& native,
         else if (!replaceNative) {
             if (std::binary_search(roster.begin(),roster.end(),slot.playerIndex)) {
                 if (!shown.insert(slot.playerIndex).second) issue="duplicate_native_target";
-            } else if (slot.playerIndex==snap.localIndex || slot.playerIndex==snap.viewIndex) {
+            } else if (snap.basicClient || slot.playerIndex==snap.localIndex || slot.playerIndex==snap.viewIndex) {
                 issue="target_not_in_teammate_roster";
             } else if (cfg.debug) {
                 // During a takeover the panel can outlive its roster identity.

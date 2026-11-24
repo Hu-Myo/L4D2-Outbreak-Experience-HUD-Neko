@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.1.29 — Basic HUD on newer clients
+
+- Enables basic extra teammate cards when an unlisted client passes the entity, roster, teammate panel, and drawing checks.
+- Leaves the stock HUD active in this mode. Full Game HUD theme, custom portraits, and native HUD replacement use verified layouts.
+
 ## 0.1.28 — Steam build 26770911 compatibility
 
 - Restores extra teammate cards after the Steam update by recognizing the new client build and its HUD panel layout.

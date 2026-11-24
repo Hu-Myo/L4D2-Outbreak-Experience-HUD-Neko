@@ -4,7 +4,9 @@
 
 **[최신 릴리스 ZIP 다운로드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest)**
 
-Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.28**은 Steam 빌드 `26770911`을 지원합니다. [로컬 인원수 수정 모드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko)와 함께 사용하면 레포데 1 캠페인에 추가된 레포데 2 생존자의 초상화가 각 캐릭터에 맞게 표시됩니다.
+Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.29**는 새 클라이언트에서도 생존자 명단, 팀원 패널, 그리기 기능이 확인되면 기본 스타일로 추가 카드를 표시합니다. 이 모드에서는 게임 기본 HUD도 함께 표시됩니다. 확인된 클라이언트에서는 게임 HUD 테마와 초상화 기능을 지원합니다.
+
+[로컬 인원수 수정 모드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko)와 함께 사용하면 확인된 클라이언트에서 레포데 1 캠페인에 추가된 레포데 2 생존자의 초상화가 각 캐릭터에 맞게 표시됩니다.
 
 [한국어 변경 사항](CHANGELOG.ko.md) · [English patch notes](CHANGELOG.md)
 

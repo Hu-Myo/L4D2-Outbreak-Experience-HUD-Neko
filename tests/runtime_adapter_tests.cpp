@@ -103,6 +103,101 @@ struct ResourceData {
     unsigned char incap[33]{};
     int grenade[33]{},medical[33]{},pills[33]{};
 };
+void CheckBasicClientAdapter() {
+    using namespace neh;
+    auto* image=static_cast<unsigned char*>(VirtualAlloc(nullptr,0x5000,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE));
+    Check(image!=nullptr,"basic client fixture owns a relocatable image");
+    const auto put=[&](int offset,const auto& value) {std::memcpy(image+offset,&value,sizeof(value));};
+    IMAGE_DOS_HEADER dos{};dos.e_magic=IMAGE_DOS_SIGNATURE;dos.e_lfanew=0x100;put(0,dos);
+    IMAGE_NT_HEADERS32 nt{};
+    nt.Signature=IMAGE_NT_SIGNATURE;nt.FileHeader.Machine=IMAGE_FILE_MACHINE_I386;
+    nt.FileHeader.SizeOfOptionalHeader=sizeof(nt.OptionalHeader);nt.FileHeader.NumberOfSections=1;
+    nt.OptionalHeader.Magic=IMAGE_NT_OPTIONAL_HDR32_MAGIC;nt.OptionalHeader.SizeOfImage=0x5000;
+    put(0x100,nt);
+    IMAGE_SECTION_HEADER text{};
+    std::memcpy(text.Name,".text",6);text.VirtualAddress=0x1000;text.Misc.VirtualSize=0x1000;
+    text.Characteristics=IMAGE_SCN_MEM_EXECUTE;put(0x100+sizeof(nt),text);
+
+    const unsigned char entityGetter[]{
+        0x55,0x8b,0xec,0x8b,0x45,0x08,0x3d,0xff,0x07,0,0,0x77,0x08,
+        0x8b,0x44,0xc1,0x28,0x5d,0xc2,0x04,0,0x33,0xc0,0x5d,0xc2,0x04,0
+    };
+    const unsigned char highestGetter[]{0x8b,0x41,0x24,0xc3};
+    // Relocate the member from 0x29c to 0x2b8 and the instruction sequence.
+    const unsigned char teammateLookup[]{
+        0x8b,0x86,0xb8,0x02,0,0,0xc6,0x86,0xf3,0x02,0,0,0,0x83,0xf8,0x20,0x0f,0x8f,0x86,0x02,0,0,
+        0x8b,0x93,0x38,0x06,0,0,0x81,0xc3,0x38,0x06,0,0,0x50,0x8b,0x42,0x10,0x8b,0xcb,0xff,0xd0,
+        0x84,0xc0,0x0f,0x84,0x6a,0x02,0,0,0x8b,0x13,0x8b,0x86,0xb8,0x02,0,0,0x8b,0x52,0x34,0x50,0x8b,0xcb,0xff,0xd2
+    };
+    put(0x1120,entityGetter);put(0x11e0,highestGetter);put(0x1450,teammateLookup);
+    put(0x2100,image+0x1120);put(0x2118,image+0x11e0);put(0x2300,image+0x2100);
+    auto* const module=reinterpret_cast<HMODULE>(image);
+    BasicClient basic;
+    Check(DiscoverBasicClient(module,image+0x2300,basic)&&basic.teammateOffset==0x2b8,
+          "unlisted client resolves relocated accessors and the real teammate index offset");
+    put(0x1650,teammateLookup);
+    BasicClient rejected;
+    Check(!DiscoverBasicClient(module,image+0x2300,rejected),"ambiguous native anchor keeps the extension disabled");
+    image[0x1650]=0;image[0x1450+54]=0x98;
+    Check(!DiscoverBasicClient(module,image+0x2300,rejected),"disagreeing native player index reads are rejected");
+    image[0x1450+54]=0xb8;image[0x1120+16]=0x2c;
+    Check(!DiscoverBasicClient(module,image+0x2300,rejected),"unverified entity storage is rejected");
+    image[0x1120+16]=0x28;
+
+    struct BasicResource {std::uint64_t pad=0;void* networkableTable=nullptr;ResourceData data;};
+    BasicResource resource{};
+    const char* props[]{"m_bConnected","m_iTeam","m_bAlive","m_iHealth","m_maxHealth","m_isIncapacitated"};
+    const int offsets[]{offsetof(ResourceData,connected),offsetof(ResourceData,team),offsetof(ResourceData,alive),
+                        offsetof(ResourceData,health),offsetof(ResourceData,maxHealth),offsetof(ResourceData,incap)};
+    const int strides[]{1,4,1,4,4,1};
+    for(int i=0;i<6;++i) {
+        RecvProp prop{};prop.name=props[i];prop.offset=static_cast<int>(offsetof(BasicResource,data))+offsets[i];
+        prop.stride=strides[i];prop.elements=33;put(0x2800+i*sizeof(RecvProp),prop);
+    }
+    put(0x2700,"CTerrorPlayerResource");put(0x2740,"DT_TerrorPlayerResource");
+    RecvTable table{image+0x2800,6,nullptr,reinterpret_cast<const char*>(image+0x2740)};
+    ClientClass record{nullptr,nullptr,reinterpret_cast<const char*>(image+0x2700),image+0x27a0,nullptr,1};
+    put(0x27a0,table);put(0x26a0,record);
+    image[0x1250]=0xb8;put(0x1251,image+0x26a0);image[0x1255]=0xc3;
+    const unsigned char dataGetter[]{0x8d,0x41,0xf8,0xc3};put(0x1280,dataGetter);
+    put(0x2204,image+0x1250);put(0x2228,image+0x1280);
+    resource.networkableTable=image+0x2200;
+    put(0x2324,40);put(0x2328+40*8,&resource.networkableTable);
+    for(int i=1;i<=8;++i) {
+        resource.data.connected[i]=resource.data.alive[i]=1;resource.data.team[i]=2;
+        resource.data.health[i]=100-i;resource.data.maxHealth[i]=100;
+    }
+    resource.data.connected[9]=1;resource.data.team[9]=4;
+    void* engineMethods[27]{};
+    engineMethods[8]=reinterpret_cast<void*>(&FakePlayerInfo);engineMethods[11]=reinterpret_cast<void*>(&FakeConsole);
+    engineMethods[12]=reinterpret_cast<void*>(&FakeLocal);engineMethods[21]=reinterpret_cast<void*>(&FakeMaxPlayers);
+    engineMethods[26]=reinterpret_cast<void*>(&FakeInGame);
+    FakeEngine engine{engineMethods};
+    g=State();g.clientBuild=nullptr;g.client=module;g.basic=basic;
+    g.engine=&engine;g.entities=image+0x2300;g.ready=true;
+    Runtime runtime;std::string error;
+    const auto snapshot=runtime.ReadSnapshot(error);
+    Check(error.empty()&&snapshot.basicClient&&snapshot.inGame&&snapshot.players.size()==8&&
+          snapshot.players.back().name=="Player 8"&&snapshot.players.back().health==92&&
+          snapshot.players.back().character==-1&&snapshot.players.back().temporaryHealth==0,
+          "unknown client renders data for eight real survivors from metadata and skips the scripted NPC");
+    Check(g_runtimeCounters.nativeHealthReads==0,"unknown client never calls the native health accessors");
+    g.resourceFields.alive.stride=4;
+    Check(!runtime.ReadSnapshot(error).inGame&&error.find("arrays could not be verified")!=std::string::npos,
+          "unproven resource array layout hides the supplement");
+
+    put(0x2960,".?AVTeamDisplayPlayer@@");
+    struct Locator {unsigned signature,offset,constructorOffset;const void* type;const void* hierarchy;};
+    put(0x2930,Locator{0,0x38,0,image+0x2958,image+0x2980});
+    put(0x29a0,image+0x2930);
+    put(0x3038,image+0x29a4);put(0x32b8,7);
+    int playerIndex=0;
+    Check(BasicTeammateIndex(image+0x3038,playerIndex)&&playerIndex==7,
+          "RTTI adjusts the validated player index to the actual TeamDisplayPlayer subobject");
+    image[0x2960]='!';
+    Check(!BasicTeammateIndex(image+0x3038,playerIndex),"unrelated panel identity is rejected");
+    g=State();g_runtimeCounters={};AbortMemoryQueries();VirtualFree(image,0,MEM_RELEASE);
+}
 struct FakeSurvivorClient {
     static constexpr std::size_t setOffset=0x7c46f0;
     std::vector<unsigned char> bytes=std::vector<unsigned char>(0x7c5000);
@@ -1403,7 +1498,7 @@ void CheckGameHudThemeCapture(const neh::ClientHudBuild& build) {
     const unsigned char scaleImage=1;put(7,0x160,scaleImage);
     const std::array<unsigned char,4> tint={101,102,103,200},numberColor={9,99,177,221};
     put(7,0x16c,tint);put(6,0x8c,numberColor);const float alpha=128;put(7,0x118,alpha);
-    g=State();g.clientBuild=build;g.ready=true;g.engine=&engine;g.panel=&panels;g.vgui=&vgui;g.surface=&surface;
+    g=State();g.clientBuild=&build;g.ready=true;g.engine=&engine;g.panel=&panels;g.vgui=&vgui;g.surface=&surface;
     g.client=reinterpret_cast<HMODULE>(client.data());g.vguiModule=reinterpret_cast<HMODULE>(vguiModule.data());
     NativePanelCandidates(2,2560,1440,1000);
     Snapshot snapshot;snapshot.inGame=true;snapshot.localIndex=snapshot.viewIndex=1;
@@ -2138,6 +2233,7 @@ void CheckMemoryQueryScope() {
 }
 } // namespace
 int main() {
+    CheckBasicClientAdapter();
     using namespace neh;
     RecvProp numeric[2]{};
     numeric[0].name="000"; numeric[0].offset=0;

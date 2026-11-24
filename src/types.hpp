@@ -63,6 +63,7 @@ struct Snapshot {
     bool hasSelfHudBounds=false;
     int survivorSet=0; // 1=L4D1, 2=L4D2, 0=unavailable or not yet initialized.
     bool rosterIncomplete=false;
+    bool basicClient=false;
 };
 struct Placement {
     int playerIndex=0;
@@ -92,10 +93,11 @@ struct NativeHudPaintState {
 struct GameHudTheme;
 struct ThemeIcon;
 struct ClientHudBuild;
+enum class Initialization { Waiting, Ready, Unsupported };
 using ItemIconLookup=const ThemeIcon* (*)(int);
 class Runtime {
 public:
-    bool Initialize(std::string& error,const ClientHudBuild& build);
+    Initialization Initialize(std::string& error,const ClientHudBuild* build);
     bool Ready() const;
     void* PanelInterface() const;
     void* SurfaceInterface() const;
