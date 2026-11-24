@@ -13,6 +13,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#include "client_build.hpp"
 #include "types.hpp"
 #include "game_hud_theme.hpp"
 #include "hud_policy.hpp"
@@ -26,7 +27,7 @@
 
 namespace {
 constexpr char kSupportedHash[] = "f6f80f514088deb8ccfdecd7cd9c2eb9b43fedafd7c529eb1fc9f7300c0d2b50";
-constexpr char kSupportedClientHash[] = "c0a8e1e88f7312db11bcfd4b0ec574d224a34b2d9a615d6088b28335eeb4af1f";
+constexpr char kPluginVersion[] = "0.1.28";
 constexpr char kSupportedSurfaceHash[] = "3f2e2d74b3934a482caa8c3d5aa8d1157e04d719185b019ffaa1f9f7b4bb1d58";
 constexpr char kSupportedVguiHash[] = "3188733e5cb87a2c72e616160e7c5298da065dcaa3248021f4abd5694eb701c1";
 constexpr char kSupportedMaterialHash[] = "09fd324cd977d5d4e2a216ee831c07ff8b882efd024137c27de4155fbdfcf0ba";
@@ -509,7 +510,7 @@ bool InstallHook() {
 DWORD WINAPI InitializeWorker(void*) {
     PreparePaths(); LoadSettings();
     g_pathsReady.store(true);
-    Log("NekoExtraHUD 0.1.27 experimental x86: starting; game playtest required.");
+    Log(std::string("NekoExtraHUD ")+kPluginVersion+": starting.");
     for(int attempt=0;attempt<600&&!g_stop.load();++attempt) {
         const auto neko=GetModuleHandleW(L"left4neko.dll");
         const auto client=GetModuleHandleW(L"client.dll");
@@ -521,15 +522,16 @@ DWORD WINAPI InitializeWorker(void*) {
             const auto hash=FileHash(file);
             Log("Neko SHA256="+hash);
             if(hash!=kSupportedHash) {
-                Log("unsupported Neko build: no native hook installed. This test build supports the inspected 2.51.0 DLL only.");
+                Log("unsupported Neko build: no native hook installed. This build supports the verified 2.51.0 DLL.");
                 return 0;
             }
             wchar_t clientFile[32768]{};
             GetModuleFileNameW(client,clientFile,32768);
             const auto clientHash=FileHash(clientFile);
             Log("client SHA256="+clientHash);
-            if(clientHash!=kSupportedClientHash) {
-                Log("unsupported client build: no native hook installed. This test build requires the inspected L4D2 client DLL.");
+            const auto* clientBuild=neh::FindClientHudBuild(clientHash);
+            if(!clientBuild) {
+                Log("unsupported client build: no native hook installed. This build requires a verified L4D2 client DLL.");
                 return 0;
             }
             wchar_t surfaceFile[32768]{};
@@ -537,7 +539,7 @@ DWORD WINAPI InitializeWorker(void*) {
             const auto surfaceHash=FileHash(surfaceFile);
             Log("surface SHA256="+surfaceHash);
             if(surfaceHash!=kSupportedSurfaceHash) {
-                Log("unsupported surface build: no native hook installed. This test build requires the inspected Surface031 DLL.");
+                Log("unsupported surface build: no native hook installed. This build requires the verified Surface031 DLL.");
                 return 0;
             }
             wchar_t vguiFile[32768]{};
@@ -549,7 +551,7 @@ DWORD WINAPI InitializeWorker(void*) {
                 return 0;
             }
             std::string error;
-            if(g_runtime.Initialize(error)) {
+            if(g_runtime.Initialize(error,*clientBuild)) {
                 // This optional interface is used only to load one portrait
                 // for an already-applied Neko model. Other HUD paths retain
                 // their existing four-module profile when it is unavailable.
@@ -739,7 +741,7 @@ const char* BuildMenu() {return BuildMenu(UseKoreanMenu());}
 class ExtraHudPlugin final:public IL4NPlugin {
 public:
     const char* GetName() override{return "NekoExtraHUD";}
-    const char* GetVersion() override{return "0.1.27-test";}
+    const char* GetVersion() override{return kPluginVersion;}
     void OnGameLaunch() override{Start();}
     void OnModuleLoaded(const char*,std::uintptr_t) override{Start();}
     const char* RequestHudMenu(bool title) override{return title?neh::MenuLabel(neh::MenuText::Title,UseKoreanMenu()):BuildMenu();}

@@ -2,15 +2,13 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[즉시 다운로드 — 0.1.25 최종판 ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.25/L4D2-Outbreak-Experience-HUD-Neko_0.1.25-final.zip)**
+**[최신 릴리스 ZIP 다운로드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest)**
 
-**[0.1.27-test 다운로드 — 로컬 인원수 수정 모드 호환](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.27-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.27-test.zip)**
-
-Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. 안정판은 **0.1.25**입니다. **0.1.27-test**는 [로컬 인원수 수정 모드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko)와의 호환성을 추가해, 레포데 1 캠페인에 추가된 레포데 2 생존자의 게임 내 팀원 초상화를 올바르게 표시합니다.
+Neko를 사용하는 레프트 4 데드 2에서 팀원 HUD를 추가로 표시하는 플러그인입니다. **0.1.28**은 Steam 빌드 `26770911`을 지원합니다. [로컬 인원수 수정 모드](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko)와 함께 사용하면 레포데 1 캠페인에 추가된 레포데 2 생존자의 초상화가 각 캐릭터에 맞게 표시됩니다.
 
 [한국어 변경 사항](CHANGELOG.ko.md) · [English patch notes](CHANGELOG.md)
 
-0.1.25에서는 L4D1 생존자 구성을 쓰는 맵에서도 L4D2 생존자에게 각자의 초상화가 표시됩니다. 죽은 봇이 있을 때 사람이 접속해도 해당 슬롯이 갱신되는 동안 나머지 팀원의 추가 HUD가 계속 표시됩니다.
+L4D1 생존자 구성을 쓰는 맵에서도 L4D2 생존자에게 각자의 초상화가 표시됩니다. 죽은 봇이 있을 때 사람이 접속해도 해당 슬롯이 갱신되는 동안 나머지 팀원의 추가 HUD가 계속 표시됩니다.
 
 Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합니다. DLL 이름은 **NekoExtraHUD**이며, 메뉴에는 **Extra Survivor HUD**, 한국어 메뉴에는 **추가 생존자 HUD**로 표시됩니다.
 
@@ -30,7 +28,7 @@ Windows용 레프트 4 데드 2와 지원되는 Neko 설치 환경이 필요합�
 
 ### 2. 추가 HUD 적용
 
-1. [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases)의 **Assets**에서 **0.1.25 최종판 ZIP** 또는 로컬 인원수 수정 모드와 호환되는 **0.1.27-test ZIP**을 받습니다. 개발용 소스 압축파일은 **Source code**로 표시됩니다.
+1. [최신 릴리스](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest)의 **Assets**에서 파일명이 `L4D2-Outbreak-Experience-HUD-Neko_`로 시작하는 설치 ZIP을 받습니다.
 2. 게임을 완전히 종료한 상태에서 `NekoExtraHUD.dll`을 아래 위치에 넣습니다.
 
    ```text

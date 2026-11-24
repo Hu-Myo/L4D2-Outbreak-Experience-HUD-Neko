@@ -2,15 +2,13 @@
 
 # L4D2 Outbreak Experience HUD (Built with Neko)
 
-**[Download now — 0.1.25 Final Final ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.25/L4D2-Outbreak-Experience-HUD-Neko_0.1.25-final.zip)**
+**[Download the latest release ZIP](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest)**
 
-**[Download 0.1.27-test — Local Co-op Slots compatibility](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/download/v0.1.27-test/L4D2-Outbreak-Experience-HUD-Neko_0.1.27-test.zip)**
-
-Extra teammate HUD cards for Left 4 Dead 2 with Neko. The stable release is **0.1.25**. The **0.1.27-test** build adds compatibility with [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko) so that L4D2 survivors added to L4D1 campaigns use their own in-game teammate portraits.
+Extra teammate HUD cards for Left 4 Dead 2 with Neko. Version **0.1.28** supports Steam build `26770911`. It includes [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko) compatibility so that L4D2 survivors added to L4D1 campaigns use their own in-game teammate portraits.
 
 [Patch notes](CHANGELOG.md) · [한국어 변경 사항](CHANGELOG.ko.md)
 
-In 0.1.25, L4D2 survivors keep their own portraits on maps that use the L4D1 survivor set. If someone joins while a survivor bot is dead, the other extra HUD cards stay visible while the affected slot updates.
+L4D2 survivors keep their own portraits on maps that use the L4D1 survivor set. If someone joins while a survivor bot is dead, the other extra HUD cards stay visible while the affected slot updates.
 
 Requires a supported Neko installation for the Windows version of Left 4 Dead 2. The DLL uses the name **NekoExtraHUD**; the menu is **Extra Survivor HUD**, or **추가 생존자 HUD** in the Korean menu.
 
@@ -30,7 +28,7 @@ This HUD targets **Neko 2.51.0**. Other Neko or game versions may not show the e
 
 ### 2. Add this HUD
 
-1. Open [Releases](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases) and download the **0.1.25 Final Final ZIP** or the **0.1.27-test ZIP** for Local Co-op Slots compatibility. The install ZIP is listed under **Assets** alongside GitHub's source archives.
+1. Open the [latest release](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-HUD-Neko/releases/latest). Under **Assets**, download the install ZIP whose name starts with `L4D2-Outbreak-Experience-HUD-Neko_`.
 2. With the game fully closed, place `NekoExtraHUD.dll` at:
 
    ```text

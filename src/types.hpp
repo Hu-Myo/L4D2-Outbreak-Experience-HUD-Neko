@@ -91,10 +91,11 @@ struct NativeHudPaintState {
 // retained inside Snapshot or Layout.
 struct GameHudTheme;
 struct ThemeIcon;
+struct ClientHudBuild;
 using ItemIconLookup=const ThemeIcon* (*)(int);
 class Runtime {
 public:
-    bool Initialize(std::string& error);
+    bool Initialize(std::string& error,const ClientHudBuild& build);
     bool Ready() const;
     void* PanelInterface() const;
     void* SurfaceInterface() const;

@@ -71,7 +71,7 @@ void EnableReplacementFixture(unsigned count=9) {
 // test executable. Menu/settings tests use a unique temporary INI only.
 namespace neh {
 void AbortMemoryQueries(){}
-bool Runtime::Initialize(std::string&){++g_mock.calls;return g_mock.ready;}
+bool Runtime::Initialize(std::string&,const ClientHudBuild&){++g_mock.calls;return g_mock.ready;}
 bool Runtime::Ready()const{++g_mock.calls;return g_mock.ready;}
 void* Runtime::PanelInterface()const{++g_mock.calls;return nullptr;}
 void* Runtime::SurfaceInterface()const{++g_mock.calls;return g_mock.surfaceReady?&g_surface:nullptr;}

@@ -1350,7 +1350,7 @@ void CheckGameHudItemIconLookup() {
           "an uninitialized weapon table never reaches Surface");
     g=State();g_runtimeCounters={};
 }
-void CheckGameHudThemeCapture() {
+void CheckGameHudThemeCapture(const neh::ClientHudBuild& build) {
     using namespace neh;
     std::vector<unsigned char> client(0x7ccc00),vguiModule(0x43500);
     void* engineTable[27]{};engineTable[5]=reinterpret_cast<void*>(&FakeScreen);
@@ -1386,8 +1386,8 @@ void CheckGameHudThemeCapture() {
     const int alignment=3,insetX=3,insetY=2;put(5,0x154,alignment);put(5,0x170,insetX);put(5,0x174,insetY);
     add(6,3,"HealthNumber","Label",{65,940,80,15},0x65dfdc);
     add(7,3,"BackgroundImage","ImagePanel",{18,918,204,104},0x65d98c);
-    add(8,3,"Health","HealthPanel",{65,975,145,15},0x5c8cbc);
-    add(10,3,"IconForSlot_Grenade","CIconPanel",{165,980,20,15},0x590654);panels.nodes[10].visible=false;
+    add(8,3,"Health","HealthPanel",{65,975,145,15},build.healthPanelVtable);
+    add(10,3,"IconForSlot_Grenade","CIconPanel",{165,980,20,15},build.iconPanelVtable);panels.nodes[10].visible=false;
     const std::array<unsigned char,4> emptyItemTint={210,211,212,200};put(10,0x1d6,emptyItemTint);
     std::array<std::array<unsigned char,0x40>,2> textImages{};
     for(std::size_t i=0;i<textImages.size();++i) {
@@ -1403,7 +1403,7 @@ void CheckGameHudThemeCapture() {
     const unsigned char scaleImage=1;put(7,0x160,scaleImage);
     const std::array<unsigned char,4> tint={101,102,103,200},numberColor={9,99,177,221};
     put(7,0x16c,tint);put(6,0x8c,numberColor);const float alpha=128;put(7,0x118,alpha);
-    g=State();g.ready=true;g.engine=&engine;g.panel=&panels;g.vgui=&vgui;g.surface=&surface;
+    g=State();g.clientBuild=build;g.ready=true;g.engine=&engine;g.panel=&panels;g.vgui=&vgui;g.surface=&surface;
     g.client=reinterpret_cast<HMODULE>(client.data());g.vguiModule=reinterpret_cast<HMODULE>(vguiModule.data());
     NativePanelCandidates(2,2560,1440,1000);
     Snapshot snapshot;snapshot.inGame=true;snapshot.localIndex=snapshot.viewIndex=1;
@@ -1616,9 +1616,9 @@ void CheckGameHudThemeCapture() {
         panels.nodes[id].parent=11;panels.nodes[id].bounds.x+=240;
         panels.nodes[11].children.push_back(id);
     }
-    add(17,11,"IconForSlot_Grenade","CIconPanel",{405,980,20,15},0x590654);
-    add(18,11,"IconForSlot_Pills","CIconPanel",{430,980,20,15},0x590654);
-    add(19,3,"IconForSlot_First_Aid","CIconPanel",{125,980,20,15},0x590654);
+    add(17,11,"IconForSlot_Grenade","CIconPanel",{405,980,20,15},build.iconPanelVtable);
+    add(18,11,"IconForSlot_Pills","CIconPanel",{430,980,20,15},build.iconPanelVtable);
+    add(19,3,"IconForSlot_First_Aid","CIconPanel",{125,980,20,15},build.iconPanelVtable);
     const std::array<unsigned char,4> itemTint={230,231,232,255};
     for(const auto id:{17u,18u,19u})put(id,0x1d6,itemTint);
     std::array<std::array<unsigned char,0xac>,2> iconImages{};
@@ -2187,7 +2187,12 @@ int main() {
     CheckIncrementalSelfDiscovery();
     CheckSafePanelLifetimes();
     CheckGameHudItemIconLookup();
-    CheckGameHudThemeCapture();
+    Check(neh::FindClientHudBuild(neh::kPreviousClientBuild.sha256)==&neh::kPreviousClientBuild &&
+          neh::FindClientHudBuild(neh::kSteam26770911ClientBuild.sha256)==&neh::kSteam26770911ClientBuild &&
+          !neh::FindClientHudBuild("unknown client hash"),
+          "each verified client selects its own HUD layout; unknown clients are rejected");
+    CheckGameHudThemeCapture(neh::kPreviousClientBuild);
+    CheckGameHudThemeCapture(neh::kSteam26770911ClientBuild);
     CheckModelPortraitAdapter();
     CheckMemoryQueryScope();
     std::cout<<"Runtime adapter: "<<assertions<<" checks passed\n";

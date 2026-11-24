@@ -3,6 +3,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "client_build.hpp"
 #include "types.hpp"
 #include "survivor_character.hpp"
 #include "game_hud_theme.hpp"
@@ -31,7 +32,6 @@ constexpr int pos=3,size=5,absPos=10,clipRect=11,inset=13,visible=15,childCount=
               child=18, parent=20, fullyVisible=26, name=36, className=37,
               getPanel=55;
 }
-// Verified against client.dll SHA256 c0a8e1e88f7312db11bcfd4b0ec574d224a34b2d9a615d6088b28335eeb4af1f.
 // This game's IClientNetworkable omits the Release method present in the old
 // public header. The plugin checks the client hash before initializing here.
 namespace ni { constexpr int clientClass=1, dataTableBase=10; }
@@ -416,6 +416,7 @@ struct State {
     void* schemeManager=nullptr;
     HMODULE neko=nullptr;
     HMODULE client=nullptr,vguiModule=nullptr;
+    ClientHudBuild clientBuild=kPreviousClientBuild;
     bool ready=false;
     int resourceIndex=-1;
     void* resourceTable=nullptr;
@@ -1322,7 +1323,8 @@ bool CharacterIncapMaterial(std::string material) {
 }
 bool ThemeHealth(void* object,ThemeCapturePass& pass,ThemeHealthBar& bar) {
     unsigned char material=0;
-    if (!ThemeObject(object,g.client,0x5c8cbc) || !Read(Add(object,0x17f),material) || material>1) return false;
+    if (!ThemeObject(object,g.client,g.clientBuild.healthPanelVtable) ||
+        !Read(Add(object,0x17f),material) || material>1) return false;
     bar.present=true;bar.newMaterial=material!=0;bar.palette=pass.palette;bar.mediumThreshold=pass.medium;
     Color monochrome{0,0,0,0};
     if (ThemeColor(object,0x1c9,monochrome)) {bar.monochrome=monochrome.a!=0;bar.monochromeColor=monochrome;}
@@ -1365,7 +1367,7 @@ bool DecodeThemeIcon(const void* texture,ThemeCapturePass& pass,ThemeIcon& icon)
 }
 bool ThemeInventoryIcon(void* object,int kind,int item,ThemeCapturePass& pass,ThemeIcon& icon) {
     void* texture=nullptr;unsigned char scale=0;
-    if (item<=0 || !ThemeObject(object,g.client,0x590654) || !Read(Add(object,0x150),texture) ||
+    if (item<=0 || !ThemeObject(object,g.client,g.clientBuild.iconPanelVtable) || !Read(Add(object,0x150),texture) ||
         !Read(Add(object,0x1d4),scale) || scale>1 || !ThemeColor(object,0x1d6,icon.color)) return false;
     icon.kind=kind;icon.item=item;icon.scale=scale!=0;icon.color=ThemeAlpha(object,icon.color);
     return DecodeThemeIcon(texture,pass,icon);
@@ -1428,7 +1430,9 @@ bool CaptureCardStyle(const SafePanel& source,const HudSlot& slot,const Player& 
         const bool decoration=name=="BackgroundImage" || name=="Dead" || name=="Frame" || name=="Border";
         if (role<0 && !decoration) continue;
         void* object=ClientPanel(panel);ThemeWidget widget;Rect raw,visible;bool shown=false;
-        const int vtable=role==0 || decoration?0x65d98c:role==4?0x5c8cbc:role>=6?0x590654:0x65dfdc;
+        const int vtable=role==0 || decoration?0x65d98c:
+                         role==4?g.clientBuild.healthPanelVtable:
+                         role>=6?g.clientBuild.iconPanelVtable:0x65dfdc;
         const int sourceItem=role==6?player.throwable:role==7?player.medical:role==8?player.pills:0;
         if (!ThemeObject(object,g.client,vtable) ||
             !ThemeWidgetFor(panel,object,container,static_cast<int>(order),widget,raw,visible,shown,role>=6)) continue;
@@ -1955,8 +1959,9 @@ const GameHudTheme& GameHudThemeStep(const Snapshot& snapshot,const std::vector<
 
 void AbortMemoryQueries() { g_memoryQueries.Abort(); }
 
-bool Runtime::Initialize(std::string& error) {
+bool Runtime::Initialize(std::string& error,const ClientHudBuild& build) {
     if (g.ready) return true;
+    g.clientBuild=build;
     g.engine=Create(GetModuleHandleW(L"engine.dll"),"VEngineClient013");
     g.entities=Create(GetModuleHandleW(L"client.dll"),"VClientEntityList003");
     g.panel=Create(GetModuleHandleW(L"vgui2.dll"),"VGUI_Panel009");

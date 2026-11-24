@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.1.28 — Steam build 26770911 compatibility
+
+- Restores extra teammate cards after the Steam update by recognizing the new client build and its HUD panel layout.
+- Retains support for the previous verified client build and Local Co-op Slots.
+
 ## 0.1.27-test — Local Co-op Slots compatibility
 
 - Added compatibility with [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko). In L4D1 campaigns, the HUD identifies added L4D2 survivors by their models and uses their in-game teammate portraits.
