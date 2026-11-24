@@ -2157,7 +2157,7 @@ Snapshot Runtime::ReadSnapshot(std::string& error) {
             if (Scalar(entityBase,fields->character,character)) {
                 player.rawCharacter=character;
                 if (snapshot.survivorSet!=1) player.character=NormalizeSurvivorCharacter(character,snapshot.survivorSet);
-                else if (character>=0 && character<4) player.stockModelCharacter=ReadStockSurvivorCharacter(entityBase,playerClass);
+                else if (character>=0 && character<8) player.stockModelCharacter=ReadStockSurvivorCharacter(entityBase,playerClass);
             }
             if (player.alive && Scalar(entityBase,fields->hanging,hanging) && hanging<=1) player.hanging=hanging!=0;
             if (player.alive && Scalar(entityBase,fields->thirdStrike,thirdStrike) && thirdStrike<=1) player.blackWhite=thirdStrike!=0;

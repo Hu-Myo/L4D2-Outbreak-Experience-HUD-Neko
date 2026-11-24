@@ -48,6 +48,12 @@ inline void ResolveL4d1RosterCharacters(std::vector<Player>& players) {
         const int raw=player.rawCharacter;
         const int legacy=NormalizeSurvivorCharacter(raw,1);
         player.character=legacy;
+        // A mixed local roster reserves 4..7 for the added L4D2 cast. An
+        // exact corresponding stock model distinguishes these from L4D1 IDs.
+        if (raw>=4 && raw<=7 && player.stockModelCharacter==raw-4) {
+            player.character=player.stockModelCharacter;
+            continue;
+        }
         if (raw<0 || raw>3) continue;
         // The same wire value can name a legacy survivor or a canonical L4D2
         // survivor. An exact stock model can resolve either interpretation.

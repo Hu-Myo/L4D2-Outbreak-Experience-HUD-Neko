@@ -536,6 +536,17 @@ void CheckL4d1RosterCharacterResolution() {
                      [](const Player& player,int expected){return player.character==expected;}),
           "an ordinary legacy roster retains Bill, Zoey, Louis, Francis in legacy order");
 
+    auto localMixed=Roster(7);
+    for(std::size_t n=0;n<localMixed.players.size();++n) {
+        const int character=n<4?legacyCharacters[n]:static_cast<int>(n-4);
+        setIdentity(localMixed.players[n],static_cast<int>(n),character);
+    }
+    ResolveL4d1RosterCharacters(localMixed.players);
+    constexpr std::array<int,8> expectedLocalMixed={4,5,7,6,0,1,2,3};
+    Check(std::equal(localMixed.players.begin(),localMixed.players.end(),expectedLocalMixed.begin(),
+                     [](const Player& player,int expected){return player.character==expected;}),
+          "a legacy campaign with four added L4D2 stock models selects all eight distinct portraits");
+
     auto conflicting=Roster(4);
     setIdentity(conflicting.players[0],0,0);
     setIdentity(conflicting.players[1],1,5);

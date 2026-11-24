@@ -149,12 +149,11 @@ void Text(void* s, unsigned long font, int x, int y, Color color,
     Call<void>(s,20,x,y);
     Call<void,const wchar_t*,int,int>(s,22,text.c_str(),static_cast<int>(text.size()),0);
 }
-// These are in-game material names, resolved by Surface through the game's
-// normal search paths. L4D1 materials have no "lobby_" prefix. The index is
-// the player's survivor character, never their displayed name or entity slot.
+// Match the native teammate HUD portraits for the canonical survivor IDs.
+// Surface resolves these material names through the game's search paths.
 constexpr std::array<const char*,8> kPortraitPaths={
-    "vgui/s_panel_lobby_gambler","vgui/s_panel_lobby_producer",
-    "vgui/s_panel_lobby_coach","vgui/s_panel_lobby_mechanic",
+    "vgui/s_panel_gambler","vgui/s_panel_producer",
+    "vgui/s_panel_coach","vgui/s_panel_mechanic",
     "vgui/s_panel_namvet","vgui/s_panel_teenangst",
     "vgui/s_panel_biker","vgui/s_panel_manager"
 };

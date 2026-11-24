@@ -1203,7 +1203,7 @@ int main() {
     Check(Printed(created,L"+73")&&Printed(created,L"Texture Survivor"),"production text preserves health and survivor name");
     Check(created.textureLookups==1&&created.textureCreates==1&&created.textureFiles==1&&created.textureSizes==1&&created.textureDraws==1,
           "missing cached portrait loads a texture and draws it");
-    Check(created.texturePaths.size()==2&&created.texturePaths[0]=="vgui/s_panel_lobby_gambler"&&
+    Check(created.texturePaths.size()==2&&created.texturePaths[0]=="vgui/s_panel_gambler"&&
           created.texturePaths[1]==created.texturePaths[0],"portrait lookup and load use the intended character path");
     Check(created.flushCalls==1&&neh::g_drawTrace.surfaceSlot==24&&neh::g_drawTrace.playerIndex==6,
           "completed draw flushes text and retains useful diagnostic trace");
@@ -1218,25 +1218,25 @@ int main() {
     CheckClean(existing);
     Check(existing.textureLookups==1&&existing.textureCreates==0&&existing.textureFiles==0&&existing.textureDraws==1,
           "existing portrait texture is reused without creation or file upload");
-    Check(existing.texturePaths.front()=="vgui/s_panel_lobby_coach","character index selects the matching portrait path");
+    Check(existing.texturePaths.front()=="vgui/s_panel_coach","character index selects the native in-game portrait");
 
-    // Verified against the installed base-game/DLC material and texture paths.
-    // The L4D1 set has NO s_panel_lobby_* materials; a positive texture ID can
-    // still represent the engine's error checkerboard, so check exact paths.
-    const std::array<const char*,4> classicPaths={
+    // Check exact paths since an error texture can still have a valid ID.
+    const std::array<const char*,8> inGamePaths={
+        "vgui/s_panel_gambler","vgui/s_panel_producer",
+        "vgui/s_panel_coach","vgui/s_panel_mechanic",
         "vgui/s_panel_namvet","vgui/s_panel_teenangst",
         "vgui/s_panel_biker","vgui/s_panel_manager"
     };
-    for(int character=4;character<8;++character) {
-        Surface classic; Bind(classic);
-        neh::Renderer classicRenderer;classicRenderer.Initialize(&classic);
-        classicRenderer.Draw(Snapshot("Classic Survivor",character),layout,settings);
-        CheckClean(classic);
-        const std::string expected=classicPaths[static_cast<std::size_t>(character-4)];
-        Check(classic.texturePaths==std::vector<std::string>{expected,expected},
-              "each L4D1 portrait lookup and upload uses its real non-lobby material path");
-        Check(classic.textureDraws==1&&!Printed(classic,L"C"),
-              "each L4D1 portrait reaches the production textured draw without initial fallback");
+    for(std::size_t n=0;n<inGamePaths.size();++n) {
+        Surface portrait; Bind(portrait);
+        neh::Renderer portraitRenderer;portraitRenderer.Initialize(&portrait);
+        portraitRenderer.Draw(Snapshot("Stock Survivor",static_cast<int>(n)),layout,settings);
+        CheckClean(portrait);
+        const std::string expected=inGamePaths[n];
+        Check(portrait.texturePaths==std::vector<std::string>{expected,expected},
+              "each stock portrait lookup and upload uses its native in-game material path");
+        Check(portrait.textureDraws==1&&!Printed(portrait,L"S"),
+              "each stock portrait reaches the production textured draw without initial fallback");
     }
 
     Surface joining;Bind(joining);

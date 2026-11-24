@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.1.27-test — Local Co-op Slots compatibility
+
+- Added compatibility with [Local Co-op Slots](https://github.com/Hu-Myo/L4D2-Outbreak-Experience-Local-Coop-Slots-Neko). In L4D1 campaigns, the HUD identifies added L4D2 survivors by their models and uses their in-game teammate portraits.
+- In-game logs from an eight-survivor L4D1 campaign confirmed the matching portrait IDs for Nick, Rochelle, Coach, and Ellis.
+
 ## 0.1.25 — The Final Final Release
 
 - L4D2 survivors keep their own portraits on maps that use the L4D1 survivor set, including mixed teams with characters from both games.
